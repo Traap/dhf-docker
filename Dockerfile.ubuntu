@@ -1,0 +1,103 @@
+# ===========================================================================
+# CHAIN A: TeX Live (heavy LaTeX dependencies)
+# ===========================================================================
+FROM ubuntu:22.04 AS texlive
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    LANG=en_US.UTF-8 \
+    LC_ALL=en_US.UTF-8
+
+# Install TeX Live toolchain (full for now — simplest)
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    texlive-full \
+    locales && \
+    locale-gen en_US.UTF-8 && \
+    rm -rf /var/lib/apt/lists/*
+
+
+# ===========================================================================
+# CHAIN B: Ruby & Git (repos + bundler)
+# ===========================================================================
+FROM ubuntu:22.04 AS ruby-base
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    LANG=en_US.UTF-8 \
+    LC_ALL=en_US.UTF-8
+
+# Install Ruby + Git
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    git \
+    ruby-full \
+    build-essential \
+    locales && \
+    locale-gen en_US.UTF-8 && \
+    rm -rf /var/lib/apt/lists/*
+
+# ---------------------------------------------------------------------------
+# Clone GitHub repositories
+# ---------------------------------------------------------------------------
+FROM ruby-base AS repos
+
+WORKDIR /opt/dhf/repos
+RUN git clone --depth=1 https://github.com/Traap/docbld.git && \
+    git clone --depth=1 https://github.com/Traap/newdoc.git && \
+    git clone --depth=1 https://github.com/Traap/amber.git && \
+    git clone --depth=1 https://github.com/Traap/autodoc.git && \
+    git clone --depth=1 https://github.com/Traap/tlc-article.git
+
+# ---------------------------------------------------------------------------
+# Install Ruby dependencies for docbld + amber
+# ---------------------------------------------------------------------------
+FROM ruby-base AS rubydeps
+
+# Copy repos into this layer so bundler can run
+COPY --from=repos /opt/dhf/repos /opt/dhf/repos
+
+# Dynamically add Ruby gem bin path (works on Ubuntu too)
+ENV PATH="/root/.local/share/gem/ruby/$(ruby -e 'puts RUBY_VERSION[/^\d+\.\d+/]')/bin:$PATH"
+
+WORKDIR /opt/dhf/repos
+RUN gem install --user-install bundler && \
+    for dir in docbld amber; do \
+      if [ -f "$dir/Gemfile" ]; then \
+        cd "$dir"; \
+        bundle install; \
+        cd ..; \
+      fi; \
+    done
+
+
+# ===========================================================================
+# FINAL RUNTIME IMAGE
+# ===========================================================================
+FROM texlive AS runtime
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    LANG=en_US.UTF-8 \
+    LC_ALL=en_US.UTF-8
+
+# Install lightweight build tools (non-TeX)
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    make \
+    python3 \
+    pandoc \
+    locales && \
+    locale-gen en_US.UTF-8 && \
+    rm -rf /var/lib/apt/lists/*
+
+# Copy all repos and Ruby gems from rubydeps
+COPY --from=rubydeps /opt/dhf/repos /opt/dhf/repos
+COPY --from=rubydeps /root/.local /root/.local
+
+# Working directories
+WORKDIR /workspace
+RUN mkdir -p /exports
+
+VOLUME ["/workspace", "/exports"]
+
+# Default command: run the Makefile
+CMD ["make", "all"]
+

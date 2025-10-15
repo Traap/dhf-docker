@@ -1,0 +1,16 @@
+services:
+  dhf-builder:
+    container_name: dhf-builder-arch
+    image: registry.example.com/dhf-builder:arch-latest
+    build:
+      context: .
+      dockerfile: Dockerfile.arch
+    volumes:
+      - .:/workspace
+      - ./exports:/exports
+    working_dir: /workspace
+    tty: true
+    stdin_open: true
+    environment:
+      - LANG=en_US.UTF-8
+      - LC_ALL=en_US.UTF-8
