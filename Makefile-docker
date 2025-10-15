@@ -1,0 +1,33 @@
+# Docker build targets for DHF Builder
+
+# Base names
+IMAGE_NAME := dhf-builder
+DOCKERFILE := Dockerfile
+
+build: ##
+	docker compose build
+
+clean: ## Cleanup local containers, images, volumes.
+	docker compose down --rmi local --volumes --remove-orphans
+
+help: ## Show this help message
+	@echo "📚 Available Make targets:"
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
+
+texlive: ## Build only TeX Live chain (heavy layer)
+	docker build --target texlive-base -t $(IMAGE_NAME)-texlive -f $(DOCKERFILE) .
+
+ruby: ## Build only the Ruby chain (repos + gems)
+	docker build --target rubydeps -t $(IMAGE_NAME)-ruby -f $(DOCKERFILE) .
+
+run: ## Run document build inside container
+	docker compose up --abort-on-container-exit
+
+shell: ## Interactgive shell inside container
+	docker compose run --rm dhf-builder /bin/bash
+
+rebuild: ## Rull rebuild (no cache)
+	docker compose build --no-cache
+
+.PHONY: build clean rebuild ruby run shell texlive
+

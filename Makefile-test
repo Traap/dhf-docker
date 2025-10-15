@@ -1,0 +1,5 @@
+# Simple default Makefile for testing inside container
+.PHONY: all
+all:
+	@echo "✅ Inside container: running document build"
+
