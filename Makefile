@@ -86,12 +86,12 @@ ubuntu.shell: ## 🐚 Open interactive shell in Ubuntu container
 dhf.clobber: ## Remove generated files and intermediate artifacts
 	$(DOCKER_RAKE) clobber
 
-dhf. copy_files: ## Copy generated files into the distribution folder
+dhf.copy_files: ## Copy generated files into the distribution folder
 	$(DOCKER_RAKE) copy_files
 
-dhf. deploy: remove_distdir texx copy_files clobber ## Full docbld pipeline: clean → build → copy → clobber
+dhf.deploy: remove_distdir texx copy_files clobber ## Full docbld pipeline: clean → build → copy → clobber
 
-dhf. docx: ## Build DOCX files from .texx using docbld
+dhf.docx: ## Build DOCX files from .texx using docbld
 	$(DOCKER_RAKE) docx
 
 dhf.list_files: ## List all .texx files detected by docbld
@@ -100,7 +100,7 @@ dhf.list_files: ## List all .texx files detected by docbld
 dhf.remove_distdir: ## Remove the distribution directory
 	$(DOCKER_RAKE) remove_distdir
 
-dhf. texx: ## Build PDFs from .texx using docbld
+dhf.texx: ## Build PDFs from .texx using docbld
 	$(DOCKER_RAKE) texx
 
 # -------------------------------------------------------------------------- }}}
