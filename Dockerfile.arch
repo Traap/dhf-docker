@@ -1,4 +1,15 @@
 # ===========================================================================
+# 🐧 Dockerfile.arch — DHF Builder (Arch Linux)
+# ---------------------------------------------------------------------------
+# This image builds Design History File (DHF) documents using LaTeX, Pandoc,
+# and Ruby-based automation (docbld, amber, autodoc, tlc-article, etc.).
+# It uses a chained multi-stage build to minimize image size:
+#   A: TeX Live base
+#   B: Ruby + Git for cloning and bundling repos
+#   C: Final runtime with all tools available
+# ===========================================================================
+
+# ===========================================================================
 # CHAIN A: TeX Live (heavy LaTeX dependencies)
 # ===========================================================================
 FROM archlinux:latest AS texlive
@@ -39,7 +50,7 @@ ENV LANG=en_US.UTF-8 \
 
 # Install only ruby & git (lightweight)
 RUN \
-  pacman -Syu --noconfirm git ruby && \
+  pacman -Syu --noconfirm git neovim ruby && \
   pacman -Scc --noconfirm && \
   rm -rf /var/cache/pacman/pkg/*
 
@@ -48,7 +59,7 @@ RUN \
 # ---------------------------------------------------------------------------
 FROM ruby-base AS repos
 
-WORKDIR /opt/dhf/repos
+WORKDIR /soup
 RUN \
   git clone --depth=1 https://github.com/Traap/docbld.git && \
   git clone --depth=1 https://github.com/Traap/newdoc.git && \
@@ -62,12 +73,12 @@ RUN \
 FROM ruby-base AS rubydeps
 
 # Copy repos in so we can bundle install
-COPY --from=repos /opt/dhf/repos /opt/dhf/repos
+COPY --from=repos /soup /soup
 
 # Determine Ruby gem bin path dynamically
 ENV PATH="/root/.local/share/gem/ruby/$(ruby -e 'puts RUBY_VERSION[/^\d+\.\d+/]')/bin:$PATH"
 
-WORKDIR /opt/dhf/repos
+WORKDIR /soup
 RUN \
   gem install --user-install bundler && \
   for dir in docbld amber; do \
@@ -84,17 +95,30 @@ RUN \
 # ===========================================================================
 FROM texlive-base AS runtime
 
-# Install lightweight build tools (non-TeX)
+# Install lightweight build tools (non-TeX) + rake + which
 RUN \
   pacman -S --noconfirm --needed --overwrite '*' \
-  pandoc \
   make \
-  python && \
+  pandoc \
+  python \
+  ruby \
+  neovim \
+  which && \
+  gem update --system 3.7.2 && \
+  gem install bundler rake && \
   pacman -Scc --noconfirm && \
   rm -rf /var/cache/pacman/pkg/*
 
+RUN gem install rake
+
+RUN RUBY_BIN_DIR="/root/.local/share/gem/ruby/$(ruby -e 'puts RUBY_VERSION[/^\d+\.\d+/]')/bin" \
+    && echo "export PATH=$RUBY_BIN_DIR:\$PATH" >> /etc/profile.d/ruby-gems.sh \
+    && chmod +x /etc/profile.d/ruby-gems.sh
+
+ENV PATH="/root/.local/share/gem/ruby/3.4.0/bin:${PATH}"
+
 # Copy all repos and Ruby gems
-COPY --from=rubydeps /opt/dhf/repos /opt/dhf/repos
+COPY --from=rubydeps /soup /soup
 
 # Locale setup
 RUN \

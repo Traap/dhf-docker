@@ -4,17 +4,35 @@
 FROM ubuntu:22.04 AS texlive
 
 ENV DEBIAN_FRONTEND=noninteractive \
-    LANG=en_US.UTF-8 \
-    LC_ALL=en_US.UTF-8
+  LANG=en_US.UTF-8 \
+  LC_ALL=en_US.UTF-8
 
 # Install TeX Live toolchain (full for now — simplest)
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-    texlive-full \
-    locales && \
-    locale-gen en_US.UTF-8 && \
-    rm -rf /var/lib/apt/lists/*
+  apt-get install -y --no-install-recommends \
+  locales \
+  ca-certificates \
+  curl \
+  git \
+  make \
+  python3 \
+  python3-pip \
+  pandoc \
+  latexmk \
+  texlive-latex-extra \
+  texlive-fonts-recommended \
+  texlive-xetex \
+  texlive-luatex \
+  texlive-lang-english \
+  texlive-science \
+  texlive-plain-generic && \
+  locale-gen en_US.UTF-8 && \
+  update-locale LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 && \
+  rm -rf /var/lib/apt/lists/*
 
+# Optional cleanup (trim layer size)
+RUN apt-get clean && \
+  rm -rf /tmp/* /var/tmp/*
 
 # ===========================================================================
 # CHAIN B: Ruby & Git (repos + bundler)
@@ -22,30 +40,31 @@ RUN apt-get update && \
 FROM ubuntu:22.04 AS ruby-base
 
 ENV DEBIAN_FRONTEND=noninteractive \
-    LANG=en_US.UTF-8 \
-    LC_ALL=en_US.UTF-8
+  LANG=en_US.UTF-8 \
+  LC_ALL=en_US.UTF-8
 
 # Install Ruby + Git
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-    git \
-    ruby-full \
-    build-essential \
-    locales && \
-    locale-gen en_US.UTF-8 && \
-    rm -rf /var/lib/apt/lists/*
+  apt-get install -y --no-install-recommends \
+  git \
+  neovim \
+  ruby-full \
+  build-essential \
+  locales && \
+  locale-gen en_US.UTF-8 && \
+  rm -rf /var/lib/apt/lists/*
 
 # ---------------------------------------------------------------------------
 # Clone GitHub repositories
 # ---------------------------------------------------------------------------
 FROM ruby-base AS repos
 
-WORKDIR /opt/dhf/repos
+WORKDIR /soup
 RUN git clone --depth=1 https://github.com/Traap/docbld.git && \
-    git clone --depth=1 https://github.com/Traap/newdoc.git && \
-    git clone --depth=1 https://github.com/Traap/amber.git && \
-    git clone --depth=1 https://github.com/Traap/autodoc.git && \
-    git clone --depth=1 https://github.com/Traap/tlc-article.git
+  git clone --depth=1 https://github.com/Traap/newdoc.git && \
+  git clone --depth=1 https://github.com/Traap/amber.git && \
+  git clone --depth=1 https://github.com/Traap/autodoc.git && \
+  git clone --depth=1 https://github.com/Traap/tlc-article.git
 
 # ---------------------------------------------------------------------------
 # Install Ruby dependencies for docbld + amber
@@ -53,20 +72,20 @@ RUN git clone --depth=1 https://github.com/Traap/docbld.git && \
 FROM ruby-base AS rubydeps
 
 # Copy repos into this layer so bundler can run
-COPY --from=repos /opt/dhf/repos /opt/dhf/repos
+COPY --from=repos /soup /soup
 
 # Dynamically add Ruby gem bin path (works on Ubuntu too)
 ENV PATH="/root/.local/share/gem/ruby/$(ruby -e 'puts RUBY_VERSION[/^\d+\.\d+/]')/bin:$PATH"
 
-WORKDIR /opt/dhf/repos
+WORKDIR /soup
 RUN gem install --user-install bundler && \
-    for dir in docbld amber; do \
-      if [ -f "$dir/Gemfile" ]; then \
-        cd "$dir"; \
-        bundle install; \
-        cd ..; \
-      fi; \
-    done
+  for dir in docbld amber; do \
+  if [ -f "$dir/Gemfile" ]; then \
+  cd "$dir"; \
+  bundle install; \
+  cd ..; \
+  fi; \
+  done
 
 
 # ===========================================================================
@@ -75,21 +94,32 @@ RUN gem install --user-install bundler && \
 FROM texlive AS runtime
 
 ENV DEBIAN_FRONTEND=noninteractive \
-    LANG=en_US.UTF-8 \
-    LC_ALL=en_US.UTF-8
+  LANG=en_US.UTF-8 \
+  LC_ALL=en_US.UTF-8
 
 # Install lightweight build tools (non-TeX)
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-    make \
-    python3 \
-    pandoc \
-    locales && \
-    locale-gen en_US.UTF-8 && \
-    rm -rf /var/lib/apt/lists/*
+  apt-get install -y --no-install-recommends \
+  make \
+  pandoc \
+  python3 \
+  ruby \
+  neovim \
+  which \
+  locales && \
+  locale-gen en_US.UTF-8 && \
+  rm -rf /var/lib/apt/lists/*
+
+RUN gem install rake
+
+RUN RUBY_BIN_DIR="/root/.local/share/gem/ruby/$(ruby -e 'puts RUBY_VERSION[/^\d+\.\d+/]')/bin" \
+    && echo "export PATH=$RUBY_BIN_DIR:\$PATH" >> /etc/profile.d/ruby-gems.sh \
+    && chmod +x /etc/profile.d/ruby-gems.sh
+
+ENV PATH="/root/.local/share/gem/ruby/3.4.0/bin:${PATH}"
 
 # Copy all repos and Ruby gems from rubydeps
-COPY --from=rubydeps /opt/dhf/repos /opt/dhf/repos
+COPY --from=rubydeps /soup /soup
 COPY --from=rubydeps /root/.local /root/.local
 
 # Working directories

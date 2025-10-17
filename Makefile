@@ -4,13 +4,13 @@
 # {{{ 🔧 Base names and configuration
 
 # DHF defaults DHF defaults
-AMBER       := /opt/dhf/repos/amber
-AUTODOC     := /opt/dhf/repos/autodoc
-DOCBLD      := /opt/dhf/repos/docbld
-DOCKER_RAKE := docker compose run --rm -w /opt/dhf/repos/docbld dhf-builder rake
+AMBER       := /soup/amber
+AUTODOC     := /soup/autodoc
+DOCBLD      := /soup/docbld
+DOCKER_RAKE := docker compose run --rm -w /soup/docbld dhf-builder rake
 EXPORTDIR   := /exports
-NEWDOC      := /opt/dhf/repos/newdoc
-TLCDIR      := /opt/dhf/repos/tlc-article
+NEWDOC      := /soup/newdoc
+TLCDIR      := /soup/tlc-article
 
 # Docker defaults.
 IMAGE_NAME := dhf-builder
@@ -23,6 +23,13 @@ DOCKER_COMPOSE_ARCH := docker-compose.arch.yml
 DOCKERFILE_UBUNTU := Dockerfile.ubuntu
 DOCKER_COMPOSE_UBUNTU := docker-compose.ubuntu.yml
 
+# Detect Git Bash path translation quirk.
+ifeq ($(shell uname -o 2>/dev/null),Msys)
+  WORKDIR = //workspace
+else
+  WORKDIR = /workspace
+endif
+
 # -------------------------------------------------------------------------- }}}
 # {{{ 🧩 Meta Targets
 
@@ -31,14 +38,15 @@ dhf.all: deploy ## Build the full DHF (delegates to deploy)
 ubuntu.all: ubuntu.build ubuntu.run ## 🧠 Build and run Ubuntu container end-to-end
 
 # -------------------------------------------------------------------------- }}}
-# {{{ 🧱 Arch Build Targets
+# {{{ 🧱 Arch Build Targets  (patched for Git Bash & Linux)
 
 
 arch.build: ## 🧱 Build full Arch docker image using docker-compose
 	docker compose -f $(DOCKER_COMPOSE_ARCH) build
 
-arch.list_files: ## 📝 Run 'rake list_files' inside Arch container (docbld)
-	docker compose -f $(DOCKER_COMPOSE_ARCH) run --rm -w /opt/dhf/repos/docbld dhf-builder rake list_files
+arch.list_files: ## 📝 Run 'rake list_files' using /soup/docbld/Rakefile (cross-platform safe)
+	docker compose -f $(DOCKER_COMPOSE_ARCH) run --rm -w $(WORKDIR) \
+	  dhf-builder bash -c "rake --rakefile /soup/docbld/Rakefile list_files"
 
 arch.rebuild: ## 🔄 Full rebuild of Arch image without cache
 	docker compose -f $(DOCKER_COMPOSE_ARCH) build --no-cache
@@ -56,14 +64,14 @@ arch.shell: ## 🐚 Open an interactive shell inside Arch container
 	docker compose -f $(DOCKER_COMPOSE_ARCH) run --rm dhf-builder /bin/bash
 
 # -------------------------------------------------------------------------- }}}
-# {{{ 🟠 Ubuntu Build Targets
-
+# {{{ 🟠 Ubuntu Build Targets  (patched for Git Bash & Linux)
 
 ubuntu.build: ## 🐧 Build full Ubuntu version of the image
 	docker compose -f $(DOCKER_COMPOSE_UBUNTU) build
 
-ubuntu.list_files: ## 📝 Run 'rake list_files' inside Ubuntu container (docbld)
-	docker compose -f $(DOCKER_COMPOSE_UBUNTU) run --rm -w /opt/dhf/repos/docbld dhf-builder rake list_files
+ubuntu.list_files: ## 📝 Run 'rake list_files' using /soup/docbld/Rakefile (cross-platform safe)
+	docker compose -f $(DOCKER_COMPOSE_UBUNTU) run --rm -w $(WORKDIR) \
+	  dhf-builder bash -c "rake --rakefile /soup/docbld/Rakefile list_files"
 
 ubuntu.rebuild: ## 🔄 Full rebuild of Ubuntu image without cache
 	docker compose -f $(DOCKER_COMPOSE_UBUNTU) build --no-cache
@@ -81,27 +89,34 @@ ubuntu.shell: ## 🐚 Open interactive shell in Ubuntu container
 	docker compose -f $(DOCKER_COMPOSE_UBUNTU) run --rm dhf-builder /bin/bash
 
 # -------------------------------------------------------------------------- }}}
-# {{{ 🟠 Design History File Targets
+# {{{ 🧬 Design History File (DHF) Targets  (patched for container consistency)
 
-dhf.clobber: ## Remove generated files and intermediate artifacts
-	$(DOCKER_RAKE) clobber
+# Helper macro — run any rake target via /soup/docbld/Rakefile
+define DOCKER_RAKE_CMD
+docker compose -f $(DOCKER_COMPOSE_ARCH) run --rm -w $(WORKDIR) \
+  dhf-builder bash -c "rake --rakefile /soup/docbld/Rakefile $(1)"
+endef
 
-dhf.copy_files: ## Copy generated files into the distribution folder
-	$(DOCKER_RAKE) copy_files
+dhf.list_files: ## 📝 List all .texx files detected by docbld
+	$(call DOCKER_RAKE_CMD,list_files)
 
-dhf.deploy: remove_distdir texx copy_files clobber ## Full docbld pipeline: clean → build → copy → clobber
+dhf.texx: ## 🧾 Build PDFs from .texx files using docbld
+	$(call DOCKER_RAKE_CMD,texx)
 
-dhf.docx: ## Build DOCX files from .texx using docbld
-	$(DOCKER_RAKE) docx
+dhf.docx: ## 🧾 Build DOCX files from .texx using docbld
+	$(call DOCKER_RAKE_CMD,docx)
 
-dhf.list_files: ## List all .texx files detected by docbld
-	$(DOCKER_RAKE) list_files
+dhf.copy_files: ## 📦 Copy generated files into the distribution folder
+	$(call DOCKER_RAKE_CMD,copy_files)
 
-dhf.remove_distdir: ## Remove the distribution directory
-	$(DOCKER_RAKE) remove_distdir
+dhf.clobber: ## 🧹 Remove generated files and intermediate artifacts
+	$(call DOCKER_RAKE_CMD,clobber)
 
-dhf.texx: ## Build PDFs from .texx using docbld
-	$(DOCKER_RAKE) texx
+dhf.remove_distdir: ## 🗑️ Remove the distribution directory
+	$(call DOCKER_RAKE_CMD,remove_distdir)
+
+dhf.deploy: ## 🚀 Full docbld pipeline: clean → build → copy → clobber
+	$(call DOCKER_RAKE_CMD,deploy)
 
 # -------------------------------------------------------------------------- }}}
 # {{{ 🧼 Cleanup Targets

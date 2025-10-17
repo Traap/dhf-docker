@@ -1,3 +1,8 @@
+# docker-compose.ubuntu.yml
+# ===========================================================================
+# 🐧 DHF Builder — Ubuntu Edition
+# ===========================================================================
+
 services:
   dhf-builder:
     container_name: dhf-builder-ubuntu
@@ -14,3 +19,10 @@ services:
     environment:
       - LANG=en_US.UTF-8
       - LC_ALL=en_US.UTF-8
+      - SOUPHOME=/soup
+      - AMBERPATH=/soup/amber
+      - AUTODOCPATH=/soup/autodoc
+      - DOCBLDPATH=/soup/docbld
+      - NEWDOCPATH=/soup/newdoc
+      - TLC_ARTICLEPATH=/soup/tlc-article
+      - EXPORTDIR=/exports
