@@ -18,10 +18,12 @@ IMAGE_NAME := dhf-builder
 # Explicit Arch defaults
 DOCKERFILE_ARCH := Dockerfile.arch
 DOCKER_COMPOSE_ARCH := docker-compose.arch.yml
+SAVE_TAR_ARCH   := $(IMAGE_NAME)-arch.tar
 
 # Ubuntu equivalents
 DOCKERFILE_UBUNTU := Dockerfile.ubuntu
 DOCKER_COMPOSE_UBUNTU := docker-compose.ubuntu.yml
+SAVE_TAR_UBUNTU := $(IMAGE_NAME)-ubuntu.tar
 
 # Detect Git Bash path translation quirk.
 ifeq ($(shell uname -o 2>/dev/null),Msys)
@@ -44,12 +46,14 @@ ubuntu.all: ubuntu.build ubuntu.run ## 🧠 Build and run Ubuntu container end-t
 arch.build: ## 🧱 Build full Arch docker image using docker-compose
 	docker compose -f $(DOCKER_COMPOSE_ARCH) build
 
-arch.export: ## 🔧  Export a docker contianer.
-  docker save -o dhf-builder-arch.tar registry.example.com/dhf-builder:arch-latest
-
 arch.list_files: ## 📝 Run 'rake list_files' using /soup/docbld/Rakefile (cross-platform safe)
 	docker compose -f $(DOCKER_COMPOSE_ARCH) run --rm -w $(WORKDIR) \
 	  dhf-builder bash -c "rake --rakefile /soup/docbld/Rakefile list_files"
+
+arch.load:  ## 📦 Load the Arch Linux image from a portable tarball
+	@echo "📦 Loading Docker image from $(SAVE_TAR_ARCH)"
+	docker load -i $(SAVE_TAR_ARCH)
+	@echo "✅ Image loaded: $(REGISTRY)/$(IMAGE_NAME):arch-latest"
 
 arch.rebuild: ## 🔄 Full rebuild of Arch image without cache
 	docker compose -f $(DOCKER_COMPOSE_ARCH) build --no-cache
@@ -62,6 +66,11 @@ arch.ruby: ## 💎 Build only the Ruby chain (repos + gems) (Arch version)
 
 arch.run: ## 🚀 Run full document build inside Arch container
 	docker compose -f $(DOCKER_COMPOSE_ARCH) up --abort-on-container-exit
+
+arch.save:  ## 🐳 Save the built Arch Linux image as a portable tarball
+	@echo "📦 Saving Docker image $(REGISTRY)/$(IMAGE_NAME):arch-latest → $(SAVE_TAR_ARCH)"
+	docker save -o $(SAVE_TAR_ARCH) $(REGISTRY)/$(IMAGE_NAME):arch-latest
+	@echo "✅ Export complete: $(SAVE_TAR_ARCH)"
 
 arch.shell: ## 🐚 Open an interactive shell inside Arch container
 	docker compose -f $(DOCKER_COMPOSE_ARCH) run --rm dhf-builder /bin/bash
@@ -76,6 +85,11 @@ ubuntu.list_files: ## 📝 Run 'rake list_files' using /soup/docbld/Rakefile (cr
 	docker compose -f $(DOCKER_COMPOSE_UBUNTU) run --rm -w $(WORKDIR) \
 	  dhf-builder bash -c "rake --rakefile /soup/docbld/Rakefile list_files"
 
+ubuntu.load:  ## 📦 Load the Ubuntu image from a portable tarball
+	@echo "📦 Loading Docker image from $(SAVE_TAR_UBUNTU)"
+	docker load -i $(SAVE_TAR_UBUNTU)
+	@echo "✅ Image loaded: $(REGISTRY)/$(IMAGE_NAME):ubuntu-latest"
+
 ubuntu.rebuild: ## 🔄 Full rebuild of Ubuntu image without cache
 	docker compose -f $(DOCKER_COMPOSE_UBUNTU) build --no-cache
 
@@ -87,6 +101,11 @@ ubuntu.ruby: ## 💎 Build only the Ruby chain (repos + gems) (Ubuntu version)
 
 ubuntu.run: ## 🚀 Run full document build inside Ubuntu container
 	docker compose -f $(DOCKER_COMPOSE_UBUNTU) up --abort-on-container-exit
+
+ubuntu.save:  ## 🐳 Save the built Ubuntu image as a portable tarball
+	@echo "📦 Saving Docker image $(REGISTRY)/$(IMAGE_NAME):ubuntu-latest → $(SAVE_TAR_UBUNTU)"
+	docker save -o $(SAVE_TAR_UBUNTU) $(REGISTRY)/$(IMAGE_NAME):ubuntu-latest
+	@echo "✅ Export complete: $(SAVE_TAR_UBUNTU)"
 
 ubuntu.shell: ## 🐚 Open interactive shell in Ubuntu container
 	docker compose -f $(DOCKER_COMPOSE_UBUNTU) run --rm dhf-builder /bin/bash
