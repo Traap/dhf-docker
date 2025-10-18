@@ -44,6 +44,9 @@ ubuntu.all: ubuntu.build ubuntu.run ## 🧠 Build and run Ubuntu container end-t
 arch.build: ## 🧱 Build full Arch docker image using docker-compose
 	docker compose -f $(DOCKER_COMPOSE_ARCH) build
 
+arch.export: ## 🔧  Export a docker contianer.
+  docker save -o dhf-builder-arch.tar registry.example.com/dhf-builder:arch-latest
+
 arch.list_files: ## 📝 Run 'rake list_files' using /soup/docbld/Rakefile (cross-platform safe)
 	docker compose -f $(DOCKER_COMPOSE_ARCH) run --rm -w $(WORKDIR) \
 	  dhf-builder bash -c "rake --rakefile /soup/docbld/Rakefile list_files"
@@ -142,7 +145,7 @@ help: ## 📚 Show this help message
 # {{{ 📝 PHONY
 
 .PHONY: \
-	arch.build arch.rebuild arch.texlive arch.ruby arch.run arch.shell arch.list_files arch.all \
+	arch.build arch.export arch.rebuild arch.texlive arch.ruby arch.run arch.shell arch.list_files arch.all \
 	dhf.all dhf.clobber dhf.copy_files dhf.deploy dhf.docx dhf.list_files dhf.remove_distdir dhf.texx \
 	ubuntu.build ubuntu.rebuild ubuntu.texlive ubuntu.ruby ubuntu.run ubuntu.shell ubuntu.list_files ubuntu.all \
 	clean prune help
