@@ -3,14 +3,17 @@
 # ===========================================================================
 FROM ubuntu:22.04 AS texlive
 
-ENV DEBIAN_FRONTEND=noninteractive \
-  LANG=en_US.UTF-8 \
-  LC_ALL=en_US.UTF-8
+ENV DEBIAN_FRONTEND=noninteractive
+ENV LANG=en_US.UTF-8
+ENV LC_ALL=en_US.UTF-8
+
 
 # Install TeX Live toolchain (full for now — simplest)
 RUN apt-get update && \
+  apt-get install -y --no-install-recommends locales && \
+  locale-gen en_US.UTF-8 && \
+  update-locale LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 && \
   apt-get install -y --no-install-recommends \
-  locales \
   ca-certificates \
   curl \
   git \
@@ -26,8 +29,6 @@ RUN apt-get update && \
   texlive-lang-english \
   texlive-science \
   texlive-plain-generic && \
-  locale-gen en_US.UTF-8 && \
-  update-locale LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 && \
   rm -rf /var/lib/apt/lists/*
 
 # Optional cleanup (trim layer size)
@@ -39,9 +40,9 @@ RUN apt-get clean && \
 # ===========================================================================
 FROM ubuntu:22.04 AS ruby-base
 
-ENV DEBIAN_FRONTEND=noninteractive \
-  LANG=en_US.UTF-8 \
-  LC_ALL=en_US.UTF-8
+ENV DEBIAN_FRONTEND=noninteractive
+ENV LANG=en_US.UTF-8
+ENV LC_ALL=en_US.UTF-8
 
 # Install Ruby + Git
 RUN apt-get update && \
@@ -60,7 +61,8 @@ RUN apt-get update && \
 FROM ruby-base AS repos
 
 WORKDIR /soup
-RUN git clone --depth=1 https://github.com/Traap/docbld.git && \
+RUN \
+  git clone --depth=1 https://github.com/Traap/docbld.git && \
   git clone --depth=1 https://github.com/Traap/newdoc.git && \
   git clone --depth=1 https://github.com/Traap/amber.git && \
   git clone --depth=1 https://github.com/Traap/autodoc.git && \
@@ -78,15 +80,14 @@ COPY --from=repos /soup /soup
 ENV PATH="/root/.local/share/gem/ruby/$(ruby -e 'puts RUBY_VERSION[/^\d+\.\d+/]')/bin:$PATH"
 
 WORKDIR /soup
-RUN gem install --user-install bundler && \
+RUN gem install bundler && \
   for dir in docbld amber; do \
-  if [ -f "$dir/Gemfile" ]; then \
-  cd "$dir"; \
-  bundle install; \
-  cd ..; \
-  fi; \
+    if [ -f "$dir/Gemfile" ]; then \
+      cd "$dir"; \
+      bundle install; \
+      cd ..; \
+    fi; \
   done
-
 
 # ===========================================================================
 # FINAL RUNTIME IMAGE
