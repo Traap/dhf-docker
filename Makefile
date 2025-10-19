@@ -12,18 +12,37 @@ EXPORTDIR   := /exports
 NEWDOC      := /soup/newdoc
 TLCDIR      := /soup/tlc-article
 
+# Enable Docker BuildKit globally
+export DOCKER_BUILDKIT=1
+
 # Docker defaults.
 IMAGE_NAME := dhf-builder
+REGISTRY   ?=
+TAG        := latest
+# --------------------------------------------------------------------------
+# 🧱 Save and Load built images for sharing (auto-detect from Compose)
+# --------------------------------------------------------------------------
+
+# Normalize registry format (avoid leading slash if undefined)
+ifeq ($(strip $(REGISTRY)),)
+  REGISTRY_PREFIX :=
+else
+  REGISTRY_PREFIX := $(REGISTRY)/
+endif
 
 # Explicit Arch defaults
 DOCKERFILE_ARCH := Dockerfile.arch
 DOCKER_COMPOSE_ARCH := docker-compose.arch.yml
-SAVE_TAR_ARCH   := $(IMAGE_NAME)-arch.tar
+IMAGE_ARCH      := $(shell docker compose -f $(DOCKER_COMPOSE_ARCH) config | grep 'image:' | awk '{print $$2}')
+IMAGE_NAME_ARCH := $(notdir $(basename $(IMAGE_ARCH)))
+SAVE_TAR_ARCH   := $(IMAGE_NAME_ARCH)-arch.tar
 
 # Ubuntu equivalents
 DOCKERFILE_UBUNTU := Dockerfile.ubuntu
 DOCKER_COMPOSE_UBUNTU := docker-compose.ubuntu.yml
-SAVE_TAR_UBUNTU := $(IMAGE_NAME)-ubuntu.tar
+IMAGE_UBUNTU    := $(shell docker compose -f $(DOCKER_COMPOSE_UBUNTU) config | grep 'image:' | awk '{print $$2}')
+IMAGE_NAME_UBUNTU := $(notdir $(basename $(IMAGE_UBUNTU)))
+SAVE_TAR_UBUNTU := $(IMAGE_NAME_UBUNTU)-ubuntu.tar
 
 # Detect Git Bash path translation quirk.
 ifeq ($(shell uname -o 2>/dev/null),Msys)
@@ -42,9 +61,8 @@ ubuntu.all: ubuntu.build ubuntu.run ## 🧠 Build and run Ubuntu container end-t
 # -------------------------------------------------------------------------- }}}
 # {{{ 🧱 Arch Build Targets  (patched for Git Bash & Linux)
 
-
 arch.build: ## 🧱 Build full Arch docker image using docker-compose
-	docker compose -f $(DOCKER_COMPOSE_ARCH) build
+	docker compose -f $(DOCKER_COMPOSE_ARCH) build --progress=plain > arch.log 2>&1
 
 arch.list_files: ## 📝 Run 'rake list_files' using /soup/docbld/Rakefile (cross-platform safe)
 	docker compose -f $(DOCKER_COMPOSE_ARCH) run --rm -w $(WORKDIR) \
@@ -53,13 +71,18 @@ arch.list_files: ## 📝 Run 'rake list_files' using /soup/docbld/Rakefile (cros
 arch.load:  ## 📦 Load the Arch Linux image from a portable tarball
 	@echo "📦 Loading Docker image from $(SAVE_TAR_ARCH)"
 	docker load -i $(SAVE_TAR_ARCH)
-	@echo "✅ Image loaded: $(REGISTRY)/$(IMAGE_NAME):arch-latest"
+	@echo "✅ Image loaded: $(IMAGE_ARCH)"
 
 arch.rebuild: ## 🔄 Full rebuild of Arch image without cache
-	docker compose -f $(DOCKER_COMPOSE_ARCH) build --no-cache
+	docker compose -f $(DOCKER_COMPOSE_ARCH) build --no-cache > arch.log 2>&1
 
 arch.texlive: ## 📚 Build only TeX Live layer (Arch version)
 	docker build --target texlive-base -t $(IMAGE_NAME)-texlive -f $(DOCKERFILE_ARCH) .
+
+arch.push:  ## 🚀 Push the Arch Linux image to its registry
+	@echo "📤 Pushing Docker image $(IMAGE_ARCH)"
+	docker push $(IMAGE_ARCH)
+	@echo "✅ Push complete: $(IMAGE_ARCH)"
 
 arch.ruby: ## 💎 Build only the Ruby chain (repos + gems) (Arch version)
 	docker build --target rubydeps -t $(IMAGE_NAME)-ruby -f $(DOCKERFILE_ARCH) .
@@ -68,8 +91,8 @@ arch.run: ## 🚀 Run full document build inside Arch container
 	docker compose -f $(DOCKER_COMPOSE_ARCH) up --abort-on-container-exit
 
 arch.save:  ## 🐳 Save the built Arch Linux image as a portable tarball
-	@echo "📦 Saving Docker image $(REGISTRY)/$(IMAGE_NAME):arch-latest → $(SAVE_TAR_ARCH)"
-	docker save -o $(SAVE_TAR_ARCH) $(REGISTRY)/$(IMAGE_NAME):arch-latest
+	@echo "📦 Saving Docker image $(IMAGE_ARCH) → $(SAVE_TAR_ARCH)"
+	docker save -o $(SAVE_TAR_ARCH) $(IMAGE_ARCH)
 	@echo "✅ Export complete: $(SAVE_TAR_ARCH)"
 
 arch.shell: ## 🐚 Open an interactive shell inside Arch container
@@ -79,7 +102,7 @@ arch.shell: ## 🐚 Open an interactive shell inside Arch container
 # {{{ 🟠 Ubuntu Build Targets  (patched for Git Bash & Linux)
 
 ubuntu.build: ## 🐧 Build full Ubuntu version of the image
-	docker compose -f $(DOCKER_COMPOSE_UBUNTU) build
+	docker compose -f $(DOCKER_COMPOSE_UBUNTU) build --progress=plain > ubuntu.log 2>&1
 
 ubuntu.list_files: ## 📝 Run 'rake list_files' using /soup/docbld/Rakefile (cross-platform safe)
 	docker compose -f $(DOCKER_COMPOSE_UBUNTU) run --rm -w $(WORKDIR) \
@@ -88,10 +111,15 @@ ubuntu.list_files: ## 📝 Run 'rake list_files' using /soup/docbld/Rakefile (cr
 ubuntu.load:  ## 📦 Load the Ubuntu image from a portable tarball
 	@echo "📦 Loading Docker image from $(SAVE_TAR_UBUNTU)"
 	docker load -i $(SAVE_TAR_UBUNTU)
-	@echo "✅ Image loaded: $(REGISTRY)/$(IMAGE_NAME):ubuntu-latest"
+	@echo "✅ Image loaded: $(IMAGE_UBUNTU)"
+
+ubuntu.push:  ## 🚀 Push the Ubuntu image to its registry
+	@echo "📤 Pushing Docker image $(IMAGE_UBUNTU)"
+	docker push $(IMAGE_UBUNTU)
+	@echo "✅ Push complete: $(IMAGE_UBUNTU)"
 
 ubuntu.rebuild: ## 🔄 Full rebuild of Ubuntu image without cache
-	docker compose -f $(DOCKER_COMPOSE_UBUNTU) build --no-cache
+	docker compose -f $(DOCKER_COMPOSE_UBUNTU) build --no-cache > ubuntu.log 2>&1
 
 ubuntu.texlive: ## 📚 Build only TeX Live layer (Ubuntu version)
 	docker build --target texlive-base -t $(IMAGE_NAME)-texlive -f $(DOCKERFILE_UBUNTU) .
@@ -103,8 +131,8 @@ ubuntu.run: ## 🚀 Run full document build inside Ubuntu container
 	docker compose -f $(DOCKER_COMPOSE_UBUNTU) up --abort-on-container-exit
 
 ubuntu.save:  ## 🐳 Save the built Ubuntu image as a portable tarball
-	@echo "📦 Saving Docker image $(REGISTRY)/$(IMAGE_NAME):ubuntu-latest → $(SAVE_TAR_UBUNTU)"
-	docker save -o $(SAVE_TAR_UBUNTU) $(REGISTRY)/$(IMAGE_NAME):ubuntu-latest
+	@echo "📦 Saving Docker image $(IMAGE_UBUNTU) → $(SAVE_TAR_UBUNTU)"
+	docker save -o $(SAVE_TAR_UBUNTU) $(IMAGE_UBUNTU)
 	@echo "✅ Export complete: $(SAVE_TAR_UBUNTU)"
 
 ubuntu.shell: ## 🐚 Open interactive shell in Ubuntu container
@@ -164,9 +192,9 @@ help: ## 📚 Show this help message
 # {{{ 📝 PHONY
 
 .PHONY: \
-	arch.build arch.export arch.rebuild arch.texlive arch.ruby arch.run arch.shell arch.list_files arch.all \
+	arch.build arch.load arch.rebuild arch.texlive arch.ruby arch.run arch.shell arch.list_files arch.push arch.save arch.all \
 	dhf.all dhf.clobber dhf.copy_files dhf.deploy dhf.docx dhf.list_files dhf.remove_distdir dhf.texx \
-	ubuntu.build ubuntu.rebuild ubuntu.texlive ubuntu.ruby ubuntu.run ubuntu.shell ubuntu.list_files ubuntu.all \
+	ubuntu.build ubuntu.load ubuntu.rebuild ubuntu.texlive ubuntu.ruby ubuntu.run ubuntu.shell ubuntu.list_files ubuntu.push ubuntu.save ubuntu.all \
 	clean prune help
 
 # -------------------------------------------------------------------------- }}}
