@@ -7,9 +7,9 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV LANG=en_US.UTF-8
 ENV LC_ALL=en_US.UTF-8
 
-
 # Install TeX Live toolchain (full for now — simplest)
-RUN apt-get update && \
+RUN --mount=type=cache,target=/var/cache/apt-texlive \
+  apt-get update && \
   apt-get install -y --no-install-recommends locales && \
   locale-gen en_US.UTF-8 && \
   update-locale LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 && \
@@ -45,13 +45,10 @@ ENV LANG=en_US.UTF-8
 ENV LC_ALL=en_US.UTF-8
 
 # Install Ruby + Git
-RUN apt-get update && \
+RUN --mount=type=cache,target=/var/cache/apt-ruby \
+  apt-get update && \
   apt-get install -y --no-install-recommends \
-  git \
-  neovim \
-  ruby-full \
-  build-essential \
-  locales && \
+  git neovim ruby-full build-essential locales && \
   locale-gen en_US.UTF-8 && \
   rm -rf /var/lib/apt/lists/*
 
@@ -82,11 +79,11 @@ ENV PATH="/root/.local/share/gem/ruby/$(ruby -e 'puts RUBY_VERSION[/^\d+\.\d+/]'
 WORKDIR /soup
 RUN gem install bundler && \
   for dir in docbld amber; do \
-    if [ -f "$dir/Gemfile" ]; then \
-      cd "$dir"; \
-      bundle install; \
-      cd ..; \
-    fi; \
+  if [ -f "$dir/Gemfile" ]; then \
+  cd "$dir"; \
+  bundle install; \
+  cd ..; \
+  fi; \
   done
 
 # ===========================================================================
@@ -114,8 +111,8 @@ RUN apt-get update && \
 RUN gem install rake
 
 RUN RUBY_BIN_DIR="/root/.local/share/gem/ruby/$(ruby -e 'puts RUBY_VERSION[/^\d+\.\d+/]')/bin" \
-    && echo "export PATH=$RUBY_BIN_DIR:\$PATH" >> /etc/profile.d/ruby-gems.sh \
-    && chmod +x /etc/profile.d/ruby-gems.sh
+  && echo "export PATH=$RUBY_BIN_DIR:\$PATH" >> /etc/profile.d/ruby-gems.sh \
+  && chmod +x /etc/profile.d/ruby-gems.sh
 
 ENV PATH="/root/.local/share/gem/ruby/3.4.0/bin:${PATH}"
 
@@ -131,4 +128,3 @@ VOLUME ["/workspace", "/exports"]
 
 # Default command: run the Makefile
 CMD ["make", "all"]
-
