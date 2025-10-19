@@ -55,18 +55,23 @@ endif
 # {{{ 🧩 Meta Targets
 
 arch.all: arch.build arch.run ## 🧠 Build and run Arch container end-to-end
-dhf.all: deploy ## Build the full DHF (delegates to deploy)
+dhf.all: dhf.deploy ## Build the full DHF (delegates to deploy)
 ubuntu.all: ubuntu.build ubuntu.run ## 🧠 Build and run Ubuntu container end-to-end
 
 # -------------------------------------------------------------------------- }}}
 # {{{ 🧱 Arch Build Targets  (patched for Git Bash & Linux)
 
+# Helper macro — run rake target inside /soup (internal TeX build)
+define DOCKER_RAKE_SOUP_CMD
+docker compose -f $(DOCKER_COMPOSE_ARCH) run --rm -w /soup \
+  dhf-builder bash -c "rake --rakefile /soup/docbld/Rakefile $(1)"
+endef
+
 arch.build: ## 🧱 Build full Arch docker image using docker-compose
 	docker compose -f $(DOCKER_COMPOSE_ARCH) build --progress=plain > arch.log 2>&1
 
 arch.list_files: ## 📝 Run 'rake list_files' using /soup/docbld/Rakefile (cross-platform safe)
-	docker compose -f $(DOCKER_COMPOSE_ARCH) run --rm -w $(WORKDIR) \
-	  dhf-builder bash -c "rake --rakefile /soup/docbld/Rakefile list_files"
+	$(call DOCKER_RAKE_SOUP_CMD,list_files)
 
 arch.load:  ## 📦 Load the Arch Linux image from a portable tarball
 	@echo "📦 Loading Docker image from $(SAVE_TAR_ARCH)"
@@ -75,9 +80,6 @@ arch.load:  ## 📦 Load the Arch Linux image from a portable tarball
 
 arch.rebuild: ## 🔄 Full rebuild of Arch image without cache
 	docker compose -f $(DOCKER_COMPOSE_ARCH) build --no-cache > arch.log 2>&1
-
-arch.texlive: ## 📚 Build only TeX Live layer (Arch version)
-	docker build --target texlive-base -t $(IMAGE_NAME)-texlive -f $(DOCKERFILE_ARCH) .
 
 arch.push:  ## 🚀 Push the Arch Linux image to its registry
 	@echo "📤 Pushing Docker image $(IMAGE_ARCH)"
@@ -97,6 +99,12 @@ arch.save:  ## 🐳 Save the built Arch Linux image as a portable tarball
 
 arch.shell: ## 🐚 Open an interactive shell inside Arch container
 	docker compose -f $(DOCKER_COMPOSE_ARCH) run --rm dhf-builder /bin/bash
+
+arch.texlive: ## 📚 Build only TeX Live layer (Arch version)
+	docker build --target texlive-base -t $(IMAGE_NAME)-texlive -f $(DOCKERFILE_ARCH) .
+
+arch.texx: ## 🧾 Build all internal .texx files under /soup
+	$(call DOCKER_RAKE_SOUP_CMD,texx)
 
 # -------------------------------------------------------------------------- }}}
 # {{{ 🟠 Ubuntu Build Targets  (patched for Git Bash & Linux)
@@ -147,26 +155,26 @@ docker compose -f $(DOCKER_COMPOSE_ARCH) run --rm -w $(WORKDIR) \
   dhf-builder bash -c "rake --rakefile /soup/docbld/Rakefile $(1)"
 endef
 
-dhf.list_files: ## 📝 List all .texx files detected by docbld
-	$(call DOCKER_RAKE_CMD,list_files)
-
-dhf.texx: ## 🧾 Build PDFs from .texx files using docbld
-	$(call DOCKER_RAKE_CMD,texx)
-
-dhf.docx: ## 🧾 Build DOCX files from .texx using docbld
-	$(call DOCKER_RAKE_CMD,docx)
+dhf.clobber: ## 🧹 Remove generated files and intermediate artifacts
+	$(call DOCKER_RAKE_CMD,clobber)
 
 dhf.copy_files: ## 📦 Copy generated files into the distribution folder
 	$(call DOCKER_RAKE_CMD,copy_files)
 
-dhf.clobber: ## 🧹 Remove generated files and intermediate artifacts
-	$(call DOCKER_RAKE_CMD,clobber)
+dhf.deploy: ## 🚀 Full docbld pipeline: clean → build → copy → clobber
+	$(call DOCKER_RAKE_CMD,deploy)
+
+dhf.docx: ## 🧾 Build DOCX files from .texx using docbld
+	$(call DOCKER_RAKE_CMD,docx)
+
+dhf.list_files: ## 📝 List all .texx files detected by docbld
+	$(call DOCKER_RAKE_CMD,list_files)
 
 dhf.remove_distdir: ## 🗑️ Remove the distribution directory
 	$(call DOCKER_RAKE_CMD,remove_distdir)
 
-dhf.deploy: ## 🚀 Full docbld pipeline: clean → build → copy → clobber
-	$(call DOCKER_RAKE_CMD,deploy)
+dhf.texx: ## 🧾 Build PDFs from .texx files using docbld
+	$(call DOCKER_RAKE_CMD,texx)
 
 # -------------------------------------------------------------------------- }}}
 # {{{ 🧼 Cleanup Targets
