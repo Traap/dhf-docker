@@ -89,11 +89,31 @@ RUN \
   fi; \
   done
 
+# ===========================================================================
+# CHAIN C: Deploy updated LaTeX class/package (e.g., tlc-article.cls)
+# ===========================================================================
+FROM texlive AS deploy
+
+# Copy deployment script and class file
+COPY soup/tlc-article/bin/deploy /usr/local/bin/deploy
+COPY soup/tlc-article/tlc-article.cls /tmp/tlc-article.cls
+
+# Ensure kpsewhich and mktexlsr exist (inherited from texlive chain)
+RUN chmod +x /usr/local/bin/deploy && \
+    /usr/local/bin/deploy /tmp/tlc-article.cls && \
+    rm -f /tmp/tlc-article.cls
 
 # ===========================================================================
 # FINAL RUNTIME IMAGE
 # ===========================================================================
 FROM texlive-base AS runtime
+
+# Refresh mirrors (prevent 429 / rate-limit errors)
+RUN curl -s "https://archlinux.org/mirrorlist/?country=US&protocol=https&ip_version=4" \
+  | sed -e 's/^#Server/Server/' -e '/^#/d' > /etc/pacman.d/mirrorlist && \
+  rankmirrors -n 10 /etc/pacman.d/mirrorlist > /etc/pacman.d/mirrorlist.new && \
+  mv /etc/pacman.d/mirrorlist.new /etc/pacman.d/mirrorlist && \
+  pacman -Syy --noconfirm
 
 # Install lightweight build tools (non-TeX) + rake + which
 RUN \
