@@ -27,10 +27,15 @@ RUN \
   mv /etc/pacman.d/mirrorlist.new /etc/pacman.d/mirrorlist && \
   pacman -Syyu --noconfirm && \
   pacman -S --noconfirm \
+  texlive-bin \
+  texlive-binextra \
   texlive-core \
   texlive-latexextra \
-  texlive-fontsextra \
-  texlive-binextra && \
+  texlive-music \
+  texlive-pictures \
+  texlive-plaingeneric \
+  texlive-publishers \
+  texlive-science && \
   pacman -Scc --noconfirm && \
   rm -rf /var/cache/pacman/pkg/*
 
@@ -136,6 +141,8 @@ RUN RUBY_BIN_DIR="/root/.local/share/gem/ruby/$(ruby -e 'puts RUBY_VERSION[/^\d+
     && chmod +x /etc/profile.d/ruby-gems.sh
 
 ENV PATH="/root/.local/share/gem/ruby/3.4.0/bin:${PATH}"
+# Allow LaTeX to find custom classes and styles in /soup/tlc-article
+ENV TEXINPUTS=/soup/tlc-article//:
 
 # Copy all repos and Ruby gems
 COPY --from=rubydeps /soup /soup
