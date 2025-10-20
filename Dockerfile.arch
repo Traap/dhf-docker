@@ -1,12 +1,13 @@
 # {{{ 🐧 Dockerfile.arch — DHF Builder (Arch Linux)
 #
 # Multi-stage build for Design History File (DHF) LaTeX pipeline:
-#   1. texlive    → Base LaTeX environment
-#   2. ruby       → Ruby + Git + Bundler
-#   3. soup_repos → Cloned repositories
-#   4. rubydeps   → Gem installs
-#   5. deploy     → Installs tlc-article into TeX tree
-#   6. runtime    → Final DHF builder image
+#   1. texlive     → Base LaTeX environment
+#   2. ruby        → Ruby + Git + Bundler
+#   3. soup_repos  → Cloned repositories
+#   4. rubydeps    → Gem installs
+#   5. pandoc      → Heavy Haskell-based toolchain
+#   6. deploy      → Installs tlc-article into TeX tree
+#   7. runtime     → Final DHF builder image
 #
 # -------------------------------------------------------------------------- }}}
 # {{{ 🧱 Stage 1: TeX Live base
@@ -15,11 +16,10 @@ FROM archlinux:latest AS texlive
 ENV LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
 
 RUN echo "en_US.UTF-8 UTF-8" > /etc/locale.gen && locale-gen && \
-    pacman -Sy --noconfirm pacman-contrib curl && \
-    curl -s "https://archlinux.org/mirrorlist/?country=US&protocol=https&ip_version=4" \
-      | sed -e 's/^#Server/Server/' -e '/^#/d' > /etc/pacman.d/mirrorlist && \
-    rankmirrors -n 10 /etc/pacman.d/mirrorlist > /etc/pacman.d/mirrorlist.new && \
-    mv /etc/pacman.d/mirrorlist.new /etc/pacman.d/mirrorlist && \
+    pacman -Sy --noconfirm pacman-contrib reflector curl && \
+    pacman-key --init && pacman-key --populate archlinux && \
+    reflector -c "United States" -f 12 -l 10 -n 12 --save /etc/pacman.d/mirrorlist && \
+    echo "ParallelDownloads = 2" >> /etc/pacman.conf && \
     pacman -Syu --noconfirm --needed \
       texlive-bin texlive-binextra texlive-core \
       texlive-latexextra texlive-pictures texlive-publishers \
@@ -33,12 +33,9 @@ FROM archlinux:latest AS ruby
 ENV LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
 
 RUN echo "en_US.UTF-8 UTF-8" > /etc/locale.gen && locale-gen && \
-    pacman -Syu --noconfirm git ruby && \
+    pacman -Sy --noconfirm git ruby && \
     gem update --system 3.7.2 && gem install bundler rake && \
     pacman -Scc --noconfirm && rm -rf /var/cache/pacman/pkg/*
-
-ENV GEM_HOME="/root/.local/share/gem/ruby/$(ruby -e 'puts RUBY_VERSION[/^\d+\.\d+/]')" \
-    PATH="$GEM_HOME/bin:$PATH"
 
 # -------------------------------------------------------------------------- }}}
 # {{{ 🍲 Stage 3: Clone repositories
@@ -58,19 +55,36 @@ FROM ruby AS rubydeps
 COPY --from=soup_repos /soup /soup
 WORKDIR /soup
 
-# Install temporary development tools required for building native gems
-RUN pacman -Syu --noconfirm --needed base-devel && \
+RUN pacman -Syu --noconfirm --needed base-devel clang cmake && \
+    GEM_PATH="$(ruby -e 'puts File.join("/root/.local/share/gem/ruby", RUBY_VERSION[/^\d+\.\d+/])')" && \
+    export GEM_HOME="$GEM_PATH" && export PATH="$GEM_HOME/bin:$PATH" && \
     for dir in docbld amber; do \
       if [ -f "$dir/Gemfile" ]; then \
-        (cd "$dir" && bundle install); \
+        (cd "$dir" && bundle config set --local path "$GEM_PATH" && bundle install); \
       fi; \
     done && \
-    # Clean up development packages and caches to minimize final size
-    pacman -Rns --noconfirm base-devel && \
+    pacman -Rns --noconfirm base-devel clang cmake && \
     pacman -Scc --noconfirm && rm -rf /var/cache/pacman/pkg/*
 
 # -------------------------------------------------------------------------- }}}
-# {{{ 🧩 Stage 5: Deploy tlc-article into TeX tree
+# {{{ 📚 Stage 5: Prebuild Pandoc (heavy Haskell dependencies)
+
+FROM archlinux:latest AS pandoc
+ENV LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
+
+RUN echo "en_US.UTF-8 UTF-8" > /etc/locale.gen && locale-gen && \
+    pacman -Sy --noconfirm reflector curl pacman-contrib && \
+    pacman-key --init && pacman-key --populate archlinux && \
+    reflector -c "United States" -f 12 -l 10 -n 12 --save /etc/pacman.d/mirrorlist && \
+    echo "ParallelDownloads = 2" >> /etc/pacman.conf && \
+    for i in 1 2 3; do \
+      pacman -Syu --noconfirm --needed pandoc && break || \
+      (echo "⚠️  Pandoc build failed (attempt $$i) — retrying in 20s..." && sleep 20); \
+    done && \
+    pacman -Scc --noconfirm && rm -rf /var/cache/pacman/pkg/*
+
+# -------------------------------------------------------------------------- }}}
+# {{{ 🧩 Stage 6: Deploy tlc-article into TeX tree
 
 FROM texlive AS deploy
 COPY --from=soup_repos /soup/tlc-article /soup/tlc-article
@@ -81,18 +95,27 @@ RUN TEXMFLOCAL=/usr/share/texmf-local && \
     mktexlsr "$TEXMFLOCAL"
 
 # -------------------------------------------------------------------------- }}}
-# {{{ 🚀 Stage 6: Final Runtime
+# {{{ 🚀 Stage 7: Final Runtime (all combined)
 
 FROM texlive AS runtime
 COPY --from=deploy /usr/share/texmf-local /usr/share/texmf-local
+COPY --from=pandoc /usr/bin/pandoc /usr/bin/pandoc
+COPY --from=pandoc /usr/lib /usr/lib
 COPY --from=rubydeps /soup /soup
 
-RUN pacman -Sy --noconfirm make pandoc python ruby neovim which && \
+RUN pacman -Sy --noconfirm reflector && \
+    pacman-key --init && pacman-key --populate archlinux && \
+    reflector -c "United States" -f 12 -l 10 -n 12 --save /etc/pacman.d/mirrorlist && \
+    echo "ParallelDownloads = 2" >> /etc/pacman.conf && \
+    for i in 1 2 3; do \
+      pacman -Syu --noconfirm --needed --overwrite '*' make python ruby neovim which && break || \
+      (echo "⚠️  Pacman failed (attempt $$i) — retrying in 20s..." && sleep 20); \
+    done && \
     gem update --system 3.7.2 && gem install bundler rake && \
     pacman -Scc --noconfirm && rm -rf /var/cache/pacman/pkg/* && \
     mktexlsr && locale-gen
 
-ENV PATH="/root/.local/share/gem/ruby/3.4.0/bin:$PATH"
+ENV PATH="/root/.local/share/gem/ruby/3.4.0/bin:${PATH}"
 
 WORKDIR /workspace
 RUN mkdir -p /exports
