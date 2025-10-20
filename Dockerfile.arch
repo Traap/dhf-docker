@@ -1,161 +1,103 @@
-# ===========================================================================
-# 🐧 Dockerfile.arch — DHF Builder (Arch Linux)
-# ---------------------------------------------------------------------------
-# This image builds Design History File (DHF) documents using LaTeX, Pandoc,
-# and Ruby-based automation (docbld, amber, autodoc, tlc-article, etc.).
-# It uses a chained multi-stage build to minimize image size:
-#   A: TeX Live base
-#   B: Ruby + Git for cloning and bundling repos
-#   C: Final runtime with all tools available
-# ===========================================================================
+# {{{ 🐧 Dockerfile.arch — DHF Builder (Arch Linux)
+#
+# Multi-stage build for Design History File (DHF) LaTeX pipeline:
+#   1. texlive    → Base LaTeX environment
+#   2. ruby       → Ruby + Git + Bundler
+#   3. soup_repos → Cloned repositories
+#   4. rubydeps   → Gem installs
+#   5. deploy     → Installs tlc-article into TeX tree
+#   6. runtime    → Final DHF builder image
+#
+# -------------------------------------------------------------------------- }}}
+# {{{ 🧱 Stage 1: TeX Live base
 
-# ===========================================================================
-# CHAIN A: TeX Live (heavy LaTeX dependencies)
-# ===========================================================================
 FROM archlinux:latest AS texlive
+ENV LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
 
-ENV LANG=en_US.UTF-8 \
-  LC_ALL=en_US.UTF-8 \
-  DEBIAN_FRONTEND=noninteractive
+RUN echo "en_US.UTF-8 UTF-8" > /etc/locale.gen && locale-gen && \
+    pacman -Sy --noconfirm pacman-contrib curl && \
+    curl -s "https://archlinux.org/mirrorlist/?country=US&protocol=https&ip_version=4" \
+      | sed -e 's/^#Server/Server/' -e '/^#/d' > /etc/pacman.d/mirrorlist && \
+    rankmirrors -n 10 /etc/pacman.d/mirrorlist > /etc/pacman.d/mirrorlist.new && \
+    mv /etc/pacman.d/mirrorlist.new /etc/pacman.d/mirrorlist && \
+    pacman -Syu --noconfirm --needed \
+      texlive-bin texlive-binextra texlive-core \
+      texlive-latexextra texlive-pictures texlive-publishers \
+      texlive-plaingeneric texlive-science && \
+    pacman -Scc --noconfirm && rm -rf /var/cache/pacman/pkg/*
 
-# Refresh mirrors & install TeX Live
-RUN \
-  pacman -Syu --noconfirm pacman-contrib curl && \
-  curl -s "https://archlinux.org/mirrorlist/?country=US&protocol=https&ip_version=4" \
-  | sed -e 's/^#Server/Server/' -e '/^#/d' > /etc/pacman.d/mirrorlist && \
-  rankmirrors -n 5 /etc/pacman.d/mirrorlist > /etc/pacman.d/mirrorlist.new && \
-  mv /etc/pacman.d/mirrorlist.new /etc/pacman.d/mirrorlist && \
-  pacman -Syyu --noconfirm && \
-  pacman -S --noconfirm \
-  texlive-bin \
-  texlive-binextra \
-  texlive-core \
-  texlive-latexextra \
-  texlive-music \
-  texlive-pictures \
-  texlive-plaingeneric \
-  texlive-publishers \
-  texlive-science && \
-  pacman -Scc --noconfirm && \
-  rm -rf /var/cache/pacman/pkg/*
+# -------------------------------------------------------------------------- }}}
+# {{{ 💎 Stage 2: Ruby + Git + Bundler
 
-# Thin layer with TeX only
-FROM archlinux:latest AS texlive-base
-COPY --from=texlive / /
+FROM archlinux:latest AS ruby
+ENV LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
 
+RUN echo "en_US.UTF-8 UTF-8" > /etc/locale.gen && locale-gen && \
+    pacman -Syu --noconfirm git ruby && \
+    gem update --system 3.7.2 && gem install bundler rake && \
+    pacman -Scc --noconfirm && rm -rf /var/cache/pacman/pkg/*
 
-# ===========================================================================
-# CHAIN B: Ruby & Git (repos + bundler)
-# ===========================================================================
-FROM archlinux:latest AS ruby-base
+ENV GEM_HOME="/root/.local/share/gem/ruby/$(ruby -e 'puts RUBY_VERSION[/^\d+\.\d+/]')" \
+    PATH="$GEM_HOME/bin:$PATH"
 
-ENV LANG=en_US.UTF-8 \
-  LC_ALL=en_US.UTF-8 \
-  DEBIAN_FRONTEND=noninteractive
+# -------------------------------------------------------------------------- }}}
+# {{{ 🍲 Stage 3: Clone repositories
 
-# Install only ruby & git (lightweight)
-RUN \
-  pacman -Syu --noconfirm git neovim ruby && \
-  pacman -Scc --noconfirm && \
-  rm -rf /var/cache/pacman/pkg/*
-
-# ---------------------------------------------------------------------------
-# Clone GitHub repositories
-# ---------------------------------------------------------------------------
-FROM ruby-base AS repos
-
+FROM ruby AS soup_repos
 WORKDIR /soup
-RUN \
-  git clone --depth=1 https://github.com/Traap/docbld.git && \
-  git clone --depth=1 https://github.com/Traap/newdoc.git && \
-  git clone --depth=1 https://github.com/Traap/amber.git && \
-  git clone --depth=1 https://github.com/Traap/autodoc.git && \
-  git clone --depth=1 https://github.com/Traap/tlc-article.git
+RUN git clone --depth=1 https://github.com/Traap/docbld.git && \
+    git clone --depth=1 https://github.com/Traap/newdoc.git && \
+    git clone --depth=1 https://github.com/Traap/amber.git && \
+    git clone --depth=1 https://github.com/Traap/autodoc.git && \
+    git clone --depth=1 https://github.com/Traap/tlc-article.git
 
-# ---------------------------------------------------------------------------
-# Install Ruby dependencies for docbld + amber
-# ---------------------------------------------------------------------------
-FROM ruby-base AS rubydeps
+# -------------------------------------------------------------------------- }}}
+# {{{ 📦 Stage 4: Bundle install (Ruby deps)
 
-# Copy repos in so we can bundle install
-COPY --from=repos /soup /soup
-
-# Determine Ruby gem bin path dynamically
-ENV PATH="/root/.local/share/gem/ruby/$(ruby -e 'puts RUBY_VERSION[/^\d+\.\d+/]')/bin:$PATH"
-
+FROM ruby AS rubydeps
+COPY --from=soup_repos /soup /soup
 WORKDIR /soup
-RUN \
-  gem install --user-install bundler && \
-  for dir in docbld amber; do \
-  if [ -f "$dir/Gemfile" ]; then \
-  cd "$dir"; \
-  bundle install; \
-  cd ..; \
-  fi; \
-  done
 
-# ===========================================================================
-# CHAIN C: Deploy updated LaTeX class/package (e.g., tlc-article.cls)
-# ===========================================================================
+# Install temporary development tools required for building native gems
+RUN pacman -Syu --noconfirm --needed base-devel && \
+    for dir in docbld amber; do \
+      if [ -f "$dir/Gemfile" ]; then \
+        (cd "$dir" && bundle install); \
+      fi; \
+    done && \
+    # Clean up development packages and caches to minimize final size
+    pacman -Rns --noconfirm base-devel && \
+    pacman -Scc --noconfirm && rm -rf /var/cache/pacman/pkg/*
+
+# -------------------------------------------------------------------------- }}}
+# {{{ 🧩 Stage 5: Deploy tlc-article into TeX tree
+
 FROM texlive AS deploy
+COPY --from=soup_repos /soup/tlc-article /soup/tlc-article
 
-# Copy deployment script and class file
-COPY soup/tlc-article/bin/deploy /usr/local/bin/deploy
-COPY soup/tlc-article/tlc-article.cls /tmp/tlc-article.cls
+RUN TEXMFLOCAL=/usr/share/texmf-local && \
+    mkdir -vp "$TEXMFLOCAL/tex/latex/tlc-article" && \
+    cp -v /soup/tlc-article/tlc-article.cls "$TEXMFLOCAL/tex/latex/tlc-article/" && \
+    mktexlsr "$TEXMFLOCAL"
 
-# Ensure kpsewhich and mktexlsr exist (inherited from texlive chain)
-RUN chmod +x /usr/local/bin/deploy && \
-    /usr/local/bin/deploy /tmp/tlc-article.cls && \
-    rm -f /tmp/tlc-article.cls
+# -------------------------------------------------------------------------- }}}
+# {{{ 🚀 Stage 6: Final Runtime
 
-# ===========================================================================
-# FINAL RUNTIME IMAGE
-# ===========================================================================
-FROM texlive-base AS runtime
-
-# Refresh mirrors (prevent 429 / rate-limit errors)
-RUN curl -s "https://archlinux.org/mirrorlist/?country=US&protocol=https&ip_version=4" \
-  | sed -e 's/^#Server/Server/' -e '/^#/d' > /etc/pacman.d/mirrorlist && \
-  rankmirrors -n 10 /etc/pacman.d/mirrorlist > /etc/pacman.d/mirrorlist.new && \
-  mv /etc/pacman.d/mirrorlist.new /etc/pacman.d/mirrorlist && \
-  pacman -Syy --noconfirm
-
-# Install lightweight build tools (non-TeX) + rake + which
-RUN \
-  pacman -S --noconfirm --needed --overwrite '*' \
-  make \
-  pandoc \
-  python \
-  ruby \
-  neovim \
-  which && \
-  gem update --system 3.7.2 && \
-  gem install bundler rake && \
-  pacman -Scc --noconfirm && \
-  rm -rf /var/cache/pacman/pkg/*
-
-RUN gem install rake
-
-RUN RUBY_BIN_DIR="/root/.local/share/gem/ruby/$(ruby -e 'puts RUBY_VERSION[/^\d+\.\d+/]')/bin" \
-    && echo "export PATH=$RUBY_BIN_DIR:\$PATH" >> /etc/profile.d/ruby-gems.sh \
-    && chmod +x /etc/profile.d/ruby-gems.sh
-
-ENV PATH="/root/.local/share/gem/ruby/3.4.0/bin:${PATH}"
-# Allow LaTeX to find custom classes and styles in /soup/tlc-article
-ENV TEXINPUTS=/soup/tlc-article//:
-
-# Copy all repos and Ruby gems
+FROM texlive AS runtime
+COPY --from=deploy /usr/share/texmf-local /usr/share/texmf-local
 COPY --from=rubydeps /soup /soup
 
-# Locale setup
-RUN \
-  sed -i 's/^#en_US.UTF-8/en_US.UTF-8/' /etc/locale.gen && \
-  locale-gen
+RUN pacman -Sy --noconfirm make pandoc python ruby neovim which && \
+    gem update --system 3.7.2 && gem install bundler rake && \
+    pacman -Scc --noconfirm && rm -rf /var/cache/pacman/pkg/* && \
+    mktexlsr && locale-gen
+
+ENV PATH="/root/.local/share/gem/ruby/3.4.0/bin:$PATH"
 
 WORKDIR /workspace
 RUN mkdir -p /exports
-
 VOLUME ["/workspace", "/exports"]
 
 CMD ["make", "all"]
 
+# -------------------------------------------------------------------------- }}}
