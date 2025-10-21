@@ -97,11 +97,25 @@ RUN TEXMFLOCAL=/usr/share/texmf-local && \
 # -------------------------------------------------------------------------- }}}
 # {{{ 🚀 Stage 7: Final Runtime (all combined)
 
+
 FROM texlive AS runtime
 COPY --from=deploy /usr/share/texmf-local /usr/share/texmf-local
 COPY --from=pandoc /usr/bin/pandoc /usr/bin/pandoc
 COPY --from=pandoc /usr/lib /usr/lib
 COPY --from=rubydeps /soup /soup
+
+RUN cat <<'EOF' > /etc/profile.d/dhf-env.sh
+# DHF Builder Environment Variables (shared by LaTeX, Rake, and shell)
+export SOUPHOME=/soup
+export AMBERPATH=/soup/amber
+export AUTODOCPATH=/soup/autodoc
+export DOCBLDPATH=/soup/docbld
+export NEWDOCPATH=/soup/newdoc
+export TLC_ARTICLEPATH=/soup/tlc-article
+export EXPORTDIR=/exports
+EOF
+
+RUN chmod +x /etc/profile.d/dhf-env.sh
 
 RUN pacman -Sy --noconfirm reflector && \
     pacman-key --init && pacman-key --populate archlinux && \
@@ -115,12 +129,15 @@ RUN pacman -Sy --noconfirm reflector && \
     pacman -Scc --noconfirm && rm -rf /var/cache/pacman/pkg/* && \
     mktexlsr && locale-gen
 
-ENV PATH="/root/.local/share/gem/ruby/3.4.0/bin:${PATH}"
+ENV PATH="/root/.local/share/gem/ruby/3.4.0/bin:${PATH}" \
+    LANG=en_US.UTF-8 \
+    LC_ALL=en_US.UTF-8
 
 WORKDIR /workspace
 RUN mkdir -p /exports
 VOLUME ["/workspace", "/exports"]
 
+ENTRYPOINT ["/bin/bash", "-lc"]
 CMD ["make", "all"]
 
 # -------------------------------------------------------------------------- }}}
