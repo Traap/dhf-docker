@@ -16,15 +16,21 @@ FROM archlinux:latest AS texlive
 ENV LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
 
 RUN echo "en_US.UTF-8 UTF-8" > /etc/locale.gen && locale-gen && \
-    pacman -Sy --noconfirm pacman-contrib reflector curl && \
-    pacman-key --init && pacman-key --populate archlinux && \
-    reflector -c "United States" -f 12 -l 10 -n 12 --save /etc/pacman.d/mirrorlist && \
-    echo "ParallelDownloads = 2" >> /etc/pacman.conf && \
-    pacman -Syu --noconfirm --needed \
-      texlive-bin texlive-binextra texlive-core \
-      texlive-latexextra texlive-pictures texlive-publishers \
-      texlive-plaingeneric texlive-science && \
-    pacman -Scc --noconfirm && rm -rf /var/cache/pacman/pkg/*
+  pacman -Sy --noconfirm pacman-contrib reflector curl && \
+  pacman-key --init && pacman-key --populate archlinux && \
+  reflector -c "United States" -f 12 -l 10 -n 12 --save /etc/pacman.d/mirrorlist && \
+  echo "ParallelDownloads = 2" >> /etc/pacman.conf && \
+  pacman -Syu --noconfirm --needed \
+  texlive-bin \
+  texlive-binextra \
+  texlive-core \
+  texlive-latexextra \
+  texlive-pictures \
+  texlive-publishers \
+  texlive-plaingeneric \
+  texlive-science \
+  texlive-fontsextra && \
+  pacman -Scc --noconfirm && rm -rf /var/cache/pacman/pkg/*
 
 # -------------------------------------------------------------------------- }}}
 # {{{ 💎 Stage 2: Ruby + Git + Bundler
@@ -33,9 +39,13 @@ FROM archlinux:latest AS ruby
 ENV LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
 
 RUN echo "en_US.UTF-8 UTF-8" > /etc/locale.gen && locale-gen && \
-    pacman -Sy --noconfirm git ruby && \
-    gem update --system 3.7.2 && gem install bundler rake && \
-    pacman -Scc --noconfirm && rm -rf /var/cache/pacman/pkg/*
+  pacman -Sy --noconfirm \
+  git \
+  ruby && \
+  gem update --system 3.7.2 && \
+  gem install bundler rake && \
+  pacman -Scc --noconfirm && \
+  rm -rf /var/cache/pacman/pkg/*
 
 # -------------------------------------------------------------------------- }}}
 # {{{ 🍲 Stage 3: Clone repositories
@@ -113,6 +123,7 @@ export DOCBLDPATH=/soup/docbld
 export NEWDOCPATH=/soup/newdoc
 export TLC_ARTICLEPATH=/soup/tlc-article
 export EXPORTDIR=/exports
+alias ll='ls -la'
 EOF
 
 RUN chmod +x /etc/profile.d/dhf-env.sh
