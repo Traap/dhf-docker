@@ -19,7 +19,7 @@ RUN echo "en_US.UTF-8 UTF-8" > /etc/locale.gen && locale-gen && \
   pacman -Sy --noconfirm pacman-contrib reflector curl && \
   pacman-key --init && pacman-key --populate archlinux && \
   reflector -c "United States" -f 12 -l 10 -n 12 --save /etc/pacman.d/mirrorlist && \
-  echo "ParallelDownloads = 2" >> /etc/pacman.conf && \
+  echo "ParallelDownloads = 5" >> /etc/pacman.conf && \
   pacman -Syu --noconfirm --needed \
   texlive-bin \
   texlive-binextra \
@@ -86,7 +86,7 @@ RUN echo "en_US.UTF-8 UTF-8" > /etc/locale.gen && locale-gen && \
     pacman -Sy --noconfirm reflector curl pacman-contrib && \
     pacman-key --init && pacman-key --populate archlinux && \
     reflector -c "United States" -f 12 -l 10 -n 12 --save /etc/pacman.d/mirrorlist && \
-    echo "ParallelDownloads = 2" >> /etc/pacman.conf && \
+    echo "ParallelDownloads = 5" >> /etc/pacman.conf && \
     for i in 1 2 3; do \
       pacman -Syu --noconfirm --needed pandoc && break || \
       (echo "⚠️  Pandoc build failed (attempt $$i) — retrying in 20s..." && sleep 20); \
@@ -99,17 +99,16 @@ RUN echo "en_US.UTF-8 UTF-8" > /etc/locale.gen && locale-gen && \
 FROM texlive AS deploy
 COPY --from=soup_repos /soup/tlc-article /soup/tlc-article
 
-RUN TEXMFLOCAL=/usr/share/texmf-local && \
-    mkdir -vp "$TEXMFLOCAL/tex/latex/tlc-article" && \
-    cp -v /soup/tlc-article/tlc-article.cls "$TEXMFLOCAL/tex/latex/tlc-article/" && \
-    mktexlsr "$TEXMFLOCAL"
+RUN TEXMFDIST=/usr/share/texmf-dist && \
+    mkdir -vp "$TEXNFDIST/tex/latex/tlc-article" && \
+    cp -v /soup/tlc-article/tlc-article.cls "$TEXMFDIST/tex/latex/tlc-article/" && \
+    mktexlsr "$TEXMFDIST"
 
 # -------------------------------------------------------------------------- }}}
 # {{{ 🚀 Stage 7: Final Runtime (all combined)
 
-
 FROM texlive AS runtime
-COPY --from=deploy /usr/share/texmf-local /usr/share/texmf-local
+COPY --from=deploy /usr/share/texmf-dist /usr/share/texmf-dist
 COPY --from=pandoc /usr/bin/pandoc /usr/bin/pandoc
 COPY --from=pandoc /usr/lib /usr/lib
 COPY --from=rubydeps /soup /soup
@@ -131,7 +130,7 @@ RUN chmod +x /etc/profile.d/dhf-env.sh
 RUN pacman -Sy --noconfirm reflector && \
     pacman-key --init && pacman-key --populate archlinux && \
     reflector -c "United States" -f 12 -l 10 -n 12 --save /etc/pacman.d/mirrorlist && \
-    echo "ParallelDownloads = 2" >> /etc/pacman.conf && \
+    echo "ParallelDownloads = 5" >> /etc/pacman.conf && \
     for i in 1 2 3; do \
       pacman -Syu --noconfirm --needed --overwrite '*' make python ruby neovim which && break || \
       (echo "⚠️  Pacman failed (attempt $$i) — retrying in 20s..." && sleep 20); \
@@ -140,7 +139,7 @@ RUN pacman -Sy --noconfirm reflector && \
     pacman -Scc --noconfirm && rm -rf /var/cache/pacman/pkg/* && \
     mktexlsr && locale-gen
 
-ENV PATH="/root/.local/share/gem/ruby/3.4.0/bin:${PATH}" \
+ENV PATH="/usr/bin:/usr/local/bin:/root/.local/share/gem/ruby/3.4.0/bin:${PATH}" \
     LANG=en_US.UTF-8 \
     LC_ALL=en_US.UTF-8
 
