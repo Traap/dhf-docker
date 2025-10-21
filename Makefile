@@ -152,10 +152,12 @@ ubuntu.shell: ## 🐚 Open interactive shell in Ubuntu container
 # -------------------------------------------------------------------------- }}}
 # {{{ 🧬 Design History File (DHF) Targets  (patched for container consistency)
 
-# Helper macro — run any rake target via /soup/docbld/Rakefile
+# Helper macro — run any rake target via /soup/docbld/Rakefile (workspace mode, login shell)
 define DOCKER_RAKE_CMD
-docker compose -f $(DOCKER_COMPOSE_ARCH) run --rm -w $(WORKDIR) \
-  dhf-builder bash -c "rake --rakefile /soup/docbld/Rakefile $(1)"
+docker compose -f $(DOCKER_COMPOSE_ARCH) run --rm \
+  --entrypoint /bin/bash \
+  dhf-builder \
+  -lc "cd /workspace && rake --rakefile /soup/docbld/Rakefile $(1)"
 endef
 
 dhf.clobber: ## 🧹 Remove generated files and intermediate artifacts
