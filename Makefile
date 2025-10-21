@@ -106,6 +106,9 @@ arch.texlive: ## 📚 Build only TeX Live layer (Arch version)
 arch.texx: ## 🧾 Build all internal .texx files under /soup
 	$(call DOCKER_RAKE_SOUP_CMD,texx)
 
+arch.rebuild-runtime: ## 🔄 Rebuild final runtime stage (after deploy)
+	docker build --target runtime -t $(IMAGE_NAME)-runtime -f $(DOCKERFILE_ARCH) .
+
 # -------------------------------------------------------------------------- }}}
 # {{{ 🟠 Ubuntu Build Targets  (patched for Git Bash & Linux)
 
