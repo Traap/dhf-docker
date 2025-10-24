@@ -105,7 +105,7 @@ RUN TEXMFDIST=/usr/share/texmf-dist && \
     mktexlsr "$TEXMFDIST"
 
 # -------------------------------------------------------------------------- }}}
-# {{{ 🚀 Stage 7: Final Runtime (all combined)
+# {{ 🚀 Stage 7: Final Runtime (all combined)
 
 FROM texlive AS runtime
 COPY --from=deploy /usr/share/texmf-dist /usr/share/texmf-dist
@@ -147,7 +147,6 @@ WORKDIR /workspace
 RUN mkdir -p /exports
 VOLUME ["/workspace", "/exports"]
 
-ENTRYPOINT ["/bin/bash", "-lc"]
-CMD ["make", "all"]
+ENTRYPOINT ["/bin/bash", "-lc", "sleep infinity"]
 
 # -------------------------------------------------------------------------- }}}

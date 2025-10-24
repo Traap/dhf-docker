@@ -70,6 +70,9 @@ endef
 arch.build: ## 🧱 Build full Arch docker image using docker-compose
 	docker compose -f $(DOCKER_COMPOSE_ARCH) build --progress=plain > arch.log 2>&1
 
+arch.down: ## 🧹 Stop and remove Arch container (stateful)
+	docker compose -f $(DOCKER_COMPOSE_ARCH) down
+
 arch.list_files: ## 📝 Run 'rake list_files' using /soup/docbld/Rakefile (cross-platform safe)
 	$(call DOCKER_RAKE_SOUP_CMD,list_files)
 
@@ -78,13 +81,16 @@ arch.load:  ## 📦 Load the Arch Linux image from a portable tarball
 	docker load -i $(SAVE_TAR_ARCH)
 	@echo "✅ Image loaded: $(IMAGE_ARCH)"
 
-arch.rebuild: ## 🔄 Full rebuild of Arch image without cache
-	docker compose -f $(DOCKER_COMPOSE_ARCH) build --no-cache > arch.log 2>&1
-
 arch.push:  ## 🚀 Push the Arch Linux image to its registry
 	@echo "📤 Pushing Docker image $(IMAGE_ARCH)"
 	docker push $(IMAGE_ARCH)
 	@echo "✅ Push complete: $(IMAGE_ARCH)"
+
+arch.rebuild: ## 🔄 Full rebuild of Arch image without cache
+	docker compose -f $(DOCKER_COMPOSE_ARCH) build --no-cache > arch.log 2>&1
+
+arch.rebuild-runtime: ## 🔄 Rebuild final runtime stage (after deploy)
+	docker build --target runtime -t $(IMAGE_NAME)-runtime -f $(DOCKERFILE_ARCH) .
 
 arch.ruby: ## 💎 Build only the Ruby chain (repos + gems) (Arch version)
 	docker build --target rubydeps -t $(IMAGE_NAME)-ruby -f $(DOCKERFILE_ARCH) .
@@ -97,8 +103,8 @@ arch.save:  ## 🐳 Save the built Arch Linux image as a portable tarball
 	docker save -o $(SAVE_TAR_ARCH) $(IMAGE_ARCH)
 	@echo "✅ Export complete: $(SAVE_TAR_ARCH)"
 
-arch.shell: ## 🐚 Open an interactive shell inside Arch container
-	docker compose -f $(DOCKER_COMPOSE_ARCH) run --rm dhf-builder /bin/bash
+arch.shell: ## 🐚 Enter an interactive shell inside Arch container (stateful)
+	docker compose -f $(DOCKER_COMPOSE_ARCH) exec dhf-builder /bin/bash
 
 arch.texlive: ## 📚 Build only TeX Live layer (Arch version)
 	docker build --target texlive-base -t $(IMAGE_NAME)-texlive -f $(DOCKERFILE_ARCH) .
@@ -106,8 +112,8 @@ arch.texlive: ## 📚 Build only TeX Live layer (Arch version)
 arch.texx: ## 🧾 Build all internal .texx files under /soup
 	$(call DOCKER_RAKE_SOUP_CMD,texx)
 
-arch.rebuild-runtime: ## 🔄 Rebuild final runtime stage (after deploy)
-	docker build --target runtime -t $(IMAGE_NAME)-runtime -f $(DOCKERFILE_ARCH) .
+arch.up: ## 🚀 Start Arch container in background (stateful)
+	docker compose -f $(DOCKER_COMPOSE_ARCH) up -d dhf-builder
 
 # -------------------------------------------------------------------------- }}}
 # {{{ 🟠 Ubuntu Build Targets  (patched for Git Bash & Linux)
@@ -153,11 +159,16 @@ ubuntu.shell: ## 🐚 Open interactive shell in Ubuntu container
 # {{{ 🧬 Design History File (DHF) Targets  (patched for container consistency)
 
 # Helper macro — run any rake target via /soup/docbld/Rakefile (workspace mode, login shell)
+# define DOCKER_RAKE_CMD
+# docker compose -f $(DOCKER_COMPOSE_ARCH) run --rm \
+#   --entrypoint /bin/bash \
+#   dhf-builder \
+#   -lc "cd /workspace && rake --rakefile /soup/docbld/Rakefile $(1)"
+# endef
 define DOCKER_RAKE_CMD
-docker compose -f $(DOCKER_COMPOSE_ARCH) run --rm \
-  --entrypoint /bin/bash \
+docker compose -f $(DOCKER_COMPOSE_ARCH) exec \
   dhf-builder \
-  -lc "cd /workspace && rake --rakefile /soup/docbld/Rakefile $(1)"
+  bash -lc "cd /workspace && rake --rakefile /soup/docbld/Rakefile $(1)"
 endef
 
 dhf.clobber: ## 🧹 Remove generated files and intermediate artifacts
@@ -194,20 +205,57 @@ prune: ## 🪓 Prune all dangling images and stopped containers
 # -------------------------------------------------------------------------- }}}
 # {{{ 🆘 Help - TODO: May need tewaking for powershell.
 
-help: ## 📚 Show this help message
+arch.help: ## 📚 Show this help message
 	@echo "📌 DHF Builder Makefile — Docker build & testing"
 	@echo ""
 	@echo "Available targets:"
 	@grep -E '^[a-zA-Z_.-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
 	awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-25s\033[0m %s\n", $$1, $$2}'
 
+win.help: ## 📚 Show this help message
+	@echo "DHF Builder Makefile - Docker build & testing"
+	@echo ""
+	@echo "Available targets:"
+	@grep -E '^[a-zA-Z0-9_./%-]+:.*## ' $(MAKEFILE_LIST) | sort | \
+	awk -F ':.*## ' '{printf "  %-25s %s\n", $$1, $$2}'
+
 # -------------------------------------------------------------------------- }}}
 # {{{ 📝 PHONY
 
 .PHONY: \
-	arch.build arch.load arch.rebuild arch.texlive arch.ruby arch.run arch.shell arch.list_files arch.push arch.save arch.all \
-	dhf.all dhf.clobber dhf.copy_files dhf.deploy dhf.docx dhf.list_files dhf.remove_distdir dhf.texx \
-	ubuntu.build ubuntu.load ubuntu.rebuild ubuntu.texlive ubuntu.ruby ubuntu.run ubuntu.shell ubuntu.list_files ubuntu.push ubuntu.save ubuntu.all \
-	clean prune help
+	arch.all \
+	arch.build \
+	arch.down \
+	arch.help \
+	arch.list_files \
+	arch.load \
+	arch.push \
+	arch.rebuild \
+	arch.ruby \
+	arch.run \
+	arch.save \
+	arch.shell \
+	arch.texlive \
+	arch.up \
+	dhf.all \
+	dhf.clobber \
+	dhf.copy_files \
+	dhf.deploy \
+	dhf.docx \
+	dhf.list_files \
+	dhf.remove_distdir \
+	dhf.texx \
+	ubuntu.build \
+	ubuntu.load \
+	ubuntu.rebuild \
+	ubuntu.texlive \
+	ubuntu.ruby \
+	ubuntu.run \
+	ubuntu.shell \
+	ubuntu.list_files \
+	ubuntu.push \
+	ubuntu.save ubuntu.all \
+	clean prune \
+	win.help
 
 # -------------------------------------------------------------------------- }}}

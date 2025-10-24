@@ -30,4 +30,4 @@ services:
       - NEWDOCPATH=/soup/newdoc
       - TLC_ARTICLEPATH=/soup/tlc-article
       - EXPORTDIR=/exports
-    entrypoint: ["/bin/bash", "-lc"]
+    entrypoint: ["/bin/bash", "-lc", "sleep infinity"]
