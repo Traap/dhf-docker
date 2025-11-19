@@ -37,13 +37,6 @@ IMAGE_ARCH      := $(shell docker compose -f $(DOCKER_COMPOSE_ARCH) config | gre
 IMAGE_NAME_ARCH := $(notdir $(basename $(IMAGE_ARCH)))
 SAVE_TAR_ARCH   := $(IMAGE_NAME_ARCH)-arch.tar
 
-# Ubuntu equivalents
-DOCKERFILE_UBUNTU := Dockerfile.ubuntu
-DOCKER_COMPOSE_UBUNTU := docker-compose.ubuntu.yml
-IMAGE_UBUNTU    := $(shell docker compose -f $(DOCKER_COMPOSE_UBUNTU) config | grep 'image:' | awk '{print $$2}')
-IMAGE_NAME_UBUNTU := $(notdir $(basename $(IMAGE_UBUNTU)))
-SAVE_TAR_UBUNTU := $(IMAGE_NAME_UBUNTU)-ubuntu.tar
-
 # Detect Git Bash path translation quirk.
 ifeq ($(shell uname -o 2>/dev/null),Msys)
   WORKDIR = //workspace
@@ -56,7 +49,6 @@ endif
 
 arch.all: arch.build arch.run ## 🧠 Build and run Arch container end-to-end
 dhf.all: dhf.deploy ## Build the full DHF (delegates to deploy)
-ubuntu.all: ubuntu.build ubuntu.run ## 🧠 Build and run Ubuntu container end-to-end
 
 # -------------------------------------------------------------------------- }}}
 # {{{ 🧱 Arch Build Targets  (patched for Git Bash & Linux)
@@ -116,46 +108,6 @@ arch.up: ## 🚀 Start Arch container in background (stateful)
 	docker compose -f $(DOCKER_COMPOSE_ARCH) up -d dhf-builder
 
 # -------------------------------------------------------------------------- }}}
-# {{{ 🟠 Ubuntu Build Targets  (patched for Git Bash & Linux)
-
-ubuntu.build: ## 🐧 Build full Ubuntu version of the image
-	docker compose -f $(DOCKER_COMPOSE_UBUNTU) build --progress=plain > ubuntu.log 2>&1
-
-ubuntu.list_files: ## 📝 Run 'rake list_files' using /soup/docbld/Rakefile (cross-platform safe)
-	docker compose -f $(DOCKER_COMPOSE_UBUNTU) run --rm -w $(WORKDIR) \
-	  dhf-builder bash -c "rake --rakefile /soup/docbld/Rakefile list_files"
-
-ubuntu.load:  ## 📦 Load the Ubuntu image from a portable tarball
-	@echo "📦 Loading Docker image from $(SAVE_TAR_UBUNTU)"
-	docker load -i $(SAVE_TAR_UBUNTU)
-	@echo "✅ Image loaded: $(IMAGE_UBUNTU)"
-
-ubuntu.push:  ## 🚀 Push the Ubuntu image to its registry
-	@echo "📤 Pushing Docker image $(IMAGE_UBUNTU)"
-	docker push $(IMAGE_UBUNTU)
-	@echo "✅ Push complete: $(IMAGE_UBUNTU)"
-
-ubuntu.rebuild: ## 🔄 Full rebuild of Ubuntu image without cache
-	docker compose -f $(DOCKER_COMPOSE_UBUNTU) build --no-cache > ubuntu.log 2>&1
-
-ubuntu.texlive: ## 📚 Build only TeX Live layer (Ubuntu version)
-	docker build --target texlive-base -t $(IMAGE_NAME)-texlive -f $(DOCKERFILE_UBUNTU) .
-
-ubuntu.ruby: ## 💎 Build only the Ruby chain (repos + gems) (Ubuntu version)
-	docker build --target rubydeps -t $(IMAGE_NAME)-ruby -f $(DOCKERFILE_UBUNTU) .
-
-ubuntu.run: ## 🚀 Run full document build inside Ubuntu container
-	docker compose -f $(DOCKER_COMPOSE_UBUNTU) up --abort-on-container-exit
-
-ubuntu.save:  ## 🐳 Save the built Ubuntu image as a portable tarball
-	@echo "📦 Saving Docker image $(IMAGE_UBUNTU) → $(SAVE_TAR_UBUNTU)"
-	docker save -o $(SAVE_TAR_UBUNTU) $(IMAGE_UBUNTU)
-	@echo "✅ Export complete: $(SAVE_TAR_UBUNTU)"
-
-ubuntu.shell: ## 🐚 Open interactive shell in Ubuntu container
-	docker compose -f $(DOCKER_COMPOSE_UBUNTU) run --rm dhf-builder /bin/bash
-
-# -------------------------------------------------------------------------- }}}
 # {{{ 🧬 Design History File (DHF) Targets  (patched for container consistency)
 
 # Helper macro — run any rake target via /soup/docbld/Rakefile (workspace mode, login shell)
@@ -195,9 +147,8 @@ dhf.texx: ## 🧾 Build PDFs from .texx files using docbld
 # -------------------------------------------------------------------------- }}}
 # {{{ 🧼 Cleanup Targets
 
-clean: ## 🧼 Cleanup local containers, images, volumes, orphans (Arch & Ubuntu)
+clean: ## 🧼 Cleanup local containers, images, volumes, orphans Arch
 	docker compose -f $(DOCKER_COMPOSE_ARCH) down --rmi local --volumes --remove-orphans
-	docker compose -f $(DOCKER_COMPOSE_UBUNTU) down --rmi local --volumes --remove-orphans
 
 prune: ## 🪓 Prune all dangling images and stopped containers
 	docker system prune -af
@@ -245,16 +196,6 @@ win.help: ## 📚 Show this help message
 	dhf.list_files \
 	dhf.remove_distdir \
 	dhf.texx \
-	ubuntu.build \
-	ubuntu.load \
-	ubuntu.rebuild \
-	ubuntu.texlive \
-	ubuntu.ruby \
-	ubuntu.run \
-	ubuntu.shell \
-	ubuntu.list_files \
-	ubuntu.push \
-	ubuntu.save ubuntu.all \
 	clean prune \
 	win.help
 
