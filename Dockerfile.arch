@@ -1,152 +1,77 @@
-# {{{ 🐧 Dockerfile.arch — DHF Builder (Arch Linux)
+# {{{ 🐧 Dockerfile.arch — DHF Builder Runtime Image
 #
-# Multi-stage build for Design History File (DHF) LaTeX pipeline:
-#   1. texlive     → Base LaTeX environment
-#   2. ruby        → Ruby + Git + Bundler
-#   3. soup_repos  → Cloned repositories
-#   4. rubydeps    → Gem installs
-#   5. pandoc      → Heavy Haskell-based toolchain
-#   6. deploy      → Installs tlc-article into TeX tree
-#   7. runtime     → Final DHF builder image
-#
-# -------------------------------------------------------------------------- }}}
-# {{{ 🧱 Stage 1: TeX Live base
+# Uses dhf-base (TeXLive + Pandoc)
+# Rebuilds fast: only Amber + repos change.
 
-FROM archlinux:latest AS texlive
+FROM dhf-base:latest AS runtime
 ENV LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
 
-RUN echo "en_US.UTF-8 UTF-8" > /etc/locale.gen && locale-gen && \
-  pacman -Sy --noconfirm pacman-contrib reflector curl && \
-  pacman-key --init && pacman-key --populate archlinux && \
-  reflector -c "United States" -f 12 -l 10 -n 12 --save /etc/pacman.d/mirrorlist && \
-  echo "ParallelDownloads = 5" >> /etc/pacman.conf && \
-  pacman -Syu --noconfirm --needed \
-  texlive-bin \
-  texlive-binextra \
-  texlive-core \
-  texlive-latexextra \
-  texlive-pictures \
-  texlive-publishers \
-  texlive-plaingeneric \
-  texlive-science \
-  texlive-fontsextra && \
-  pacman -Scc --noconfirm && rm -rf /var/cache/pacman/pkg/*
+# -------------------------------------------------------------------------- }}}
+# {{{ Inject DHF Repositories
+
+COPY ./amber        /soup/amber
+COPY ./autodoc      /soup/autodoc
+COPY ./docbld       /soup/docbld
+COPY ./newdoc       /soup/newdoc
+COPY ./tlc-article  /soup/tlc-article
+
+RUN chown -R root:root /soup && chmod -R a+r /soup
 
 # -------------------------------------------------------------------------- }}}
-# {{{ 💎 Stage 2: Ruby + Git + Bundler
+# {{{ Ruby Toolchain
 
-FROM archlinux:latest AS ruby
-ENV LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
-
-RUN echo "en_US.UTF-8 UTF-8" > /etc/locale.gen && locale-gen && \
-  pacman -Sy --noconfirm \
-  git \
-  ruby && \
-  gem update --system 3.7.2 && \
-  gem install bundler rake && \
-  pacman -Scc --noconfirm && \
-  rm -rf /var/cache/pacman/pkg/*
-
-# -------------------------------------------------------------------------- }}}
-# {{{ 🍲 Stage 3: Clone repositories
-
-FROM ruby AS soup_repos
-WORKDIR /soup
-RUN git clone --depth=1 https://github.com/Traap/docbld.git && \
-    git clone --depth=1 https://github.com/Traap/newdoc.git && \
-    git clone --depth=1 https://github.com/Traap/amber.git && \
-    git clone --depth=1 https://github.com/Traap/autodoc.git && \
-    git clone --depth=1 https://github.com/Traap/tlc-article.git
-
-# -------------------------------------------------------------------------- }}}
-# {{{ 📦 Stage 4: Bundle install (Ruby deps)
-
-FROM ruby AS rubydeps
-COPY --from=soup_repos /soup /soup
-WORKDIR /soup
-
-RUN pacman -Syu --noconfirm --needed base-devel clang cmake && \
-    GEM_PATH="$(ruby -e 'puts File.join("/root/.local/share/gem/ruby", RUBY_VERSION[/^\d+\.\d+/])')" && \
-    export GEM_HOME="$GEM_PATH" && export PATH="$GEM_HOME/bin:$PATH" && \
-    for dir in docbld amber; do \
-      if [ -f "$dir/Gemfile" ]; then \
-        (cd "$dir" && bundle config set --local path "$GEM_PATH" && bundle install); \
-      fi; \
-    done && \
-    pacman -Rns --noconfirm base-devel clang cmake && \
+RUN pacman -Sy --noconfirm \
+      gcc \
+      make \
+      patch \
+      base-devel \
+      ruby \
+      ruby-irb \
+      python \
+      git \
+      curl \
+      which && \
     pacman -Scc --noconfirm && rm -rf /var/cache/pacman/pkg/*
 
-# -------------------------------------------------------------------------- }}}
-# {{{ 📚 Stage 5: Prebuild Pandoc (heavy Haskell dependencies)
+ENV GEM_HOME=/root/.local/share/gem
+ENV PATH="/root/.local/share/gem/ruby/3.4.0/bin:$PATH"
 
-FROM archlinux:latest AS pandoc
-ENV LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
-
-RUN echo "en_US.UTF-8 UTF-8" > /etc/locale.gen && locale-gen && \
-    pacman -Sy --noconfirm reflector curl pacman-contrib && \
-    pacman-key --init && pacman-key --populate archlinux && \
-    reflector -c "United States" -f 12 -l 10 -n 12 --save /etc/pacman.d/mirrorlist && \
-    echo "ParallelDownloads = 5" >> /etc/pacman.conf && \
-    for i in 1 2 3; do \
-      pacman -Syu --noconfirm --needed pandoc && break || \
-      (echo "⚠️  Pandoc build failed (attempt $$i) — retrying in 20s..." && sleep 20); \
-    done && \
-    pacman -Scc --noconfirm && rm -rf /var/cache/pacman/pkg/*
+RUN gem update --system && gem install bundler rake
 
 # -------------------------------------------------------------------------- }}}
-# {{{ 🧩 Stage 6: Deploy tlc-article into TeX tree
+# {{{ Build Amber
 
-FROM texlive AS deploy
-COPY --from=soup_repos /soup/tlc-article /soup/tlc-article
+RUN cd /soup/amber && \
+    bundle config set path 'vendor/bundle' && \
+    bundle install
 
-RUN TEXMFDIST=/usr/share/texmf-dist && \
-    mkdir -vp "$TEXNFDIST/tex/latex/tlc-article" && \
-    cp -v /soup/tlc-article/tlc-article.cls "$TEXMFDIST/tex/latex/tlc-article/" && \
-    mktexlsr "$TEXMFDIST"
+ENV PATH="/soup/amber/bin:${PATH}"
 
 # -------------------------------------------------------------------------- }}}
-# {{ 🚀 Stage 7: Final Runtime (all combined)
+# {{{ Environment Variables
 
-FROM texlive AS runtime
-COPY --from=deploy /usr/share/texmf-dist /usr/share/texmf-dist
-COPY --from=pandoc /usr/bin/pandoc /usr/bin/pandoc
-COPY --from=pandoc /usr/lib /usr/lib
-COPY --from=rubydeps /soup /soup
-
-RUN cat <<'EOF' > /etc/profile.d/dhf-env.sh
-# DHF Builder Environment Variables (shared by LaTeX, Rake, and shell)
+RUN cat <<'EOF' >/etc/profile.d/dhf-env.sh
 export SOUPHOME=/soup
-export AMBERPATH=/soup/amber
-export AUTODOCPATH=/soup/autodoc
-export DOCBLDPATH=/soup/docbld
-export NEWDOCPATH=/soup/newdoc
-export TLC_ARTICLEPATH=/soup/tlc-article
 export EXPORTDIR=/exports
+export TEXINPUTS=/soup/tlc-article//:
 alias ll='ls -la'
 EOF
 
 RUN chmod +x /etc/profile.d/dhf-env.sh
 
-RUN pacman -Sy --noconfirm reflector && \
-    pacman-key --init && pacman-key --populate archlinux && \
-    reflector -c "United States" -f 12 -l 10 -n 12 --save /etc/pacman.d/mirrorlist && \
-    echo "ParallelDownloads = 5" >> /etc/pacman.conf && \
-    for i in 1 2 3; do \
-      pacman -Syu --noconfirm --needed --overwrite '*' make python ruby neovim which && break || \
-      (echo "⚠️  Pacman failed (attempt $$i) — retrying in 20s..." && sleep 20); \
-    done && \
-    gem update --system 3.7.2 && gem install bundler rake && \
-    pacman -Scc --noconfirm && rm -rf /var/cache/pacman/pkg/* && \
-    mktexlsr && locale-gen
+# -------------------------------------------------------------------------- }}}
+# {{{ Entrypoint
 
-ENV PATH="/usr/bin:/usr/local/bin:/root/.local/share/gem/ruby/3.4.0/bin:${PATH}" \
-    LANG=en_US.UTF-8 \
-    LC_ALL=en_US.UTF-8
+RUN cat <<'EOF' >/usr/local/bin/dhf-entrypoint.sh
+#!/bin/bash
+[ -f /etc/profile ] && source /etc/profile
+for f in /etc/profile.d/*.sh; do [ -r "$f" ] && source "$f"; done
+exec /bin/bash --login
+EOF
 
-WORKDIR /workspace
-RUN mkdir -p /exports
-VOLUME ["/workspace", "/exports"]
+RUN chmod +x /usr/local/bin/dhf-entrypoint.sh
 
-ENTRYPOINT ["/bin/bash", "-lc", "sleep infinity"]
+ENTRYPOINT ["/usr/local/bin/dhf-entrypoint.sh"]
+CMD []
 
 # -------------------------------------------------------------------------- }}}

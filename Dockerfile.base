@@ -1,0 +1,86 @@
+# {{{ 🐧 Dockerfile.base — DHF Builder Base Image
+#
+# Optimized for:
+#   - Stage 0: Rated mirrors, pacman-key, locale, reflector
+#   - Stage 1: TeXLive built from ratedmirrors
+#   - Stage 2: Pandoc built from ratedmirrors
+#   - Final: dhf-base (TeXLive + Pandoc)
+#
+# Build once, reuse forever.
+#
+# -------------------------------------------------------------------------- }}}
+# {{{ Stage 0: ratedmirrors — shared Arch initialization layer
+
+FROM archlinux:latest AS ratedmirrors
+ENV LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
+
+RUN echo "en_US.UTF-8 UTF-8" > /etc/locale.gen && \
+    locale-gen && \
+    pacman-key --init && pacman-key --populate archlinux && \
+    \
+    # Seed one known-good mirror before reflector runs
+    echo "Server = https://mirror.osbeck.com/archlinux/\$repo/os/\$arch" \
+        > /etc/pacman.d/mirrorlist && \
+    \
+    pacman -Sy --noconfirm reflector pacman-contrib curl && \
+    \
+    # Rate mirrors once and reuse across all stages
+    reflector \
+        --country "United States" \
+        --protocol https \
+        --age 24 \
+        --sort rate \
+        --save /etc/pacman.d/mirrorlist && \
+    \
+    echo "ParallelDownloads = 5" >> /etc/pacman.conf
+
+# -------------------------------------------------------------------------- }}}
+# {{{ Stage 1: texlive — heavy TeXLive installation
+
+FROM ratedmirrors AS texlive
+
+RUN for i in 1 2 3; do \
+      pacman -Syu --noconfirm --needed \
+        texlive-bin \
+        texlive-binextra \
+        texlive-core \
+        texlive-latexextra \
+        texlive-pictures \
+        texlive-publishers \
+        texlive-plaingeneric \
+        texlive-science \
+        texlive-fontsextra && break || sleep 10; \
+    done && \
+    pacman -Scc --noconfirm && rm -rf /var/cache/pacman/pkg/*
+
+# -------------------------------------------------------------------------- }}}
+# {{{ Stage 2: pandoc — Haskell binary installation
+
+FROM ratedmirrors AS pandoc
+
+RUN for i in 1 2 3; do \
+      pacman -Syu --noconfirm --needed pandoc && break || sleep 10; \
+    done && \
+    pacman -Scc --noconfirm && rm -rf /var/cache/pacman/pkg/*
+
+# -------------------------------------------------------------------------- }}}
+# {{{ Final Stage: dhf-base — the reusable foundation image
+
+FROM texlive AS dhf-base
+ENV LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
+
+# Bring in pandoc runtime
+COPY --from=pandoc /usr/bin/pandoc /usr/bin/pandoc
+COPY --from=pandoc /usr/lib /usr/lib
+
+# NOTE:
+#   dhf-base contains:
+#     - full TeX Live
+#     - pandoc
+#   dhf-base does NOT contain:
+#     - ruby
+#     - repos
+#     - amber
+#   These belong in runtime (Dockerfile.arch)
+#
+# -------------------------------------------------------------------------- }}}

@@ -1,33 +1,23 @@
-# ------------------------------------------------------------------------------
 # docker-compose.arch.yml — DHF Builder (Arch Linux)
-#
-# Purpose:
-#   Compose file for Arch-based DHF Builder container.
-#   Ensures environment variables defined in /etc/profile.d/dhf-env.sh
-#   are available in all shell, make, and rake sessions.
-#
-# ------------------------------------------------------------------------------
+
 services:
   dhf-builder:
     container_name: dhf-builder-arch
-    image: registry.example.com/dhf-builder:arch-latest
+
     build:
-      context: .
-      dockerfile: Dockerfile.arch
-    volumes:
-      - .:/workspace
-      - ./exports:/exports
-    working_dir: /workspace
+      context: ..
+      dockerfile: dhf-docker/Dockerfile.arch
+
+    image: dhf-builder:arch-latest
+
     tty: true
     stdin_open: true
+    working_dir: /workspace
+
+    volumes:
+      - ..:/workspace
+      - ../exports:/exports
+
     environment:
-      - LANG=en_US.UTF-8
-      - LC_ALL=en_US.UTF-8
-      - SOUPHOME=/soup
-      - AMBERPATH=/soup/amber
-      - AUTODOCPATH=/soup/autodoc
-      - DOCBLDPATH=/soup/docbld
-      - NEWDOCPATH=/soup/newdoc
-      - TLC_ARTICLEPATH=/soup/tlc-article
-      - EXPORTDIR=/exports
-    entrypoint: ["/bin/bash", "-lc", "sleep infinity"]
+      LANG: en_US.UTF-8
+      LC_ALL: en_US.UTF-8
