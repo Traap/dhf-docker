@@ -1,44 +1,33 @@
 # {{{ 🐳 Makefile — DHF Builder Docker Targets (Arch & Ubuntu)
 #
+# Cleaned up and optimized for split-base architecture:
+#   - arch.build-base     → build slow TeXLive+Pandoc foundation
+#   - arch.build          → build runtime layer
+#   - arch.rebuild        → rebuild runtime layer without cache
+#   - arch.test           → verify Amber + Ruby + Bundler in runtime container
+#
 # -------------------------------------------------------------------------- }}}
 # {{{ 🔧 Base names and configuration
 
-# Docker defaults.
 IMAGE_NAME := dhf-builder
 REGISTRY   ?=
 TAG        := latest
 
-# DHF defaults DHF defaults
+# DHF paths baked into runtime image
 AMBER       := /soup/amber
 AUTODOC     := /soup/autodoc
 DOCBLD      := /soup/docbld
-DOCKER_RAKE := docker compose run --rm -w /soup/docbld dhf-builder rake
 EXPORTDIR   := /exports
 NEWDOC      := /soup/newdoc
 TLCDIR      := /soup/tlc-article
 
-# Enable Docker BuildKit globally
+# Docker BuildKit is always on
 export DOCKER_BUILDKIT=1
 
-# --------------------------------------------------------------------------
-# 🧱 Save and Load built images for sharing (auto-detect from Compose)
-# --------------------------------------------------------------------------
+# Compose file
+DOCKER_COMPOSE_ARCH := docker-compose.arch.yml
 
-# Normalize registry format (avoid leading slash if undefined)
-ifeq ($(strip $(REGISTRY)),)
-  REGISTRY_PREFIX :=
-else
-  REGISTRY_PREFIX := $(REGISTRY)/
-endif
-
-# Explicit Arch defaults
-DOCKERFILE_ARCH      := Dockerfile.arch
-DOCKER_COMPOSE_ARCH  := docker-compose.arch.yml
-IMAGE_ARCH           := $(shell docker compose -f $(DOCKER_COMPOSE_ARCH) config | grep 'image:' | awk '{print $$2}')
-IMAGE_NAME_ARCH      := $(notdir $(basename $(IMAGE_ARCH)))
-SAVE_TAR_ARCH        := $(IMAGE_NAME_ARCH)-arch.tar
-
-# Detect Git Bash path translation quirk.
+# Detect Git Bash path translation
 ifeq ($(shell uname -o 2>/dev/null),Msys)
   WORKDIR = //workspace
 else
@@ -48,123 +37,90 @@ endif
 # -------------------------------------------------------------------------- }}}
 # {{{ 🧩 Meta Targets
 
-arch.all: arch.build arch.run ## 🧠 Build and run Arch container end-to-end
-dhf.all: dhf.deploy           ## Build the full DHF (delegates to deploy)
+arch.all: arch.build arch.run ## Build + run Arch container end-to-end
 
 # -------------------------------------------------------------------------- }}}
-# {{{ 🧱 Arch Build Targets  (patched for Git Bash & Linux)
+# {{{ 🧱 Base Build Targets (TeXLive + Pandoc)
 
-# Helper macro — run rake target inside /soup (internal TeX build)
-define DOCKER_RAKE_SOUP_CMD
-docker compose -f $(DOCKER_COMPOSE_ARCH) run --rm -w /soup \
-  dhf-builder bash -c "rake --rakefile /soup/docbld/Rakefile $(1)"
-endef
-
-arch.build: ## Build fast runtime layer only
-	docker compose -f $(DOCKER_COMPOSE_ARCH) build > arch.log 2>&1
-
-arch.build-base: ## Build the base image (slow, run only when needed)
+arch.build-base: ## 🧱 Build slow base image (dhf-base)
 	docker build -f Dockerfile.base -t dhf-base:latest .. > base.log 2>&1
 
-arch.down: ## 🧹 Stop and remove Arch container (stateful)
-	docker compose -f $(DOCKER_COMPOSE_ARCH) down
+# -------------------------------------------------------------------------- }}}
+# {{{ ⚡ Runtime Build Targets (Fast)
 
-arch.list_files: ## 📝 Run 'rake list_files' using /soup/docbld/Rakefile (cross-platform safe)
-	$(call DOCKER_RAKE_SOUP_CMD,list_files)
+arch.build: ## 🚀 Build runtime layer (Amber + repos)
+	docker compose --progress=plain -f $(DOCKER_COMPOSE_ARCH) build > arch.log 2>&1
 
-arch.load:  ## 📦 Load the Arch Linux image from a portable tarball
-	@echo "📦 Loading Docker image from $(SAVE_TAR_ARCH)"
-	docker load -i $(SAVE_TAR_ARCH)
-	@echo "✅ Image loaded: $(IMAGE_ARCH)"
+arch.rebuild: ## ♻ Rebuild runtime layer without using cache
+	docker compose --progress=plain -f $(DOCKER_COMPOSE_ARCH) build --no-cache > arch.log 2>&1
 
-arch.push:  ## 🚀 Push the Arch Linux image to its registry
-	@echo "📤 Pushing Docker image $(IMAGE_ARCH)"
-	docker push $(IMAGE_ARCH)
-	@echo "✅ Push complete: $(IMAGE_ARCH)"
-
-arch.rebuild: ## Full rebuild of runtime WITHOUT rebuilding TeXLive/Pandoc
-	docker compose -f $(DOCKER_COMPOSE_ARCH) build --no-cache > arch.log 2>&1
-
-arch.rebuild-runtime: ## 🔄 Rebuild final runtime stage (after deploy) (same as runtime image)
-	docker build --target runtime -t $(IMAGE_NAME)-runtime -f $(DOCKERFILE_ARCH) .
-
-arch.ruby: ## 💎 Build runtime image for Ruby/Python debugging (runtime stage)
-	docker build --target runtime -t $(IMAGE_NAME)-ruby -f $(DOCKERFILE_ARCH) .
-
-arch.run: ## 🚀 Run full document build inside Arch container
+arch.run: ## ▶ Run full document build inside Arch container
 	docker compose -f $(DOCKER_COMPOSE_ARCH) up --abort-on-container-exit
 
-arch.save:  ## 🐳 Save the built Arch Linux image as a portable tarball
-	@echo "📦 Saving Docker image $(IMAGE_ARCH) → $(SAVE_TAR_ARCH)"
-	docker save -o $(SAVE_TAR_ARCH) $(IMAGE_ARCH)
-	@echo "✅ Export complete: $(SAVE_TAR_ARCH)"
-
-arch.shell: ## 🐚 Enter an interactive shell inside Arch container (stateful)
-	docker compose -f $(DOCKER_COMPOSE_ARCH) exec dhf-builder /bin/bash
-
-arch.texlive: ## 📚 Build only TeX Live layer (Arch version)
-	docker build --target texlive -t $(IMAGE_NAME)-texlive -f $(DOCKERFILE_ARCH) .
-
-arch.texx: ## 🧾 Build all internal .texx files under /soup
-	$(call DOCKER_RAKE_SOUP_CMD,texx)
-
-arch.up: ## 🚀 Start Arch container in background (stateful)
+arch.up: ## ▶ Start container in background
 	docker compose -f $(DOCKER_COMPOSE_ARCH) up -d dhf-builder
 
-# -------------------------------------------------------------------------- }}}
-# {{{ 🧬 Design History File (DHF) Targets  (patched for container consistency)
+arch.down: ## 🧹 Stop and remove Arch container
+	docker compose -f $(DOCKER_COMPOSE_ARCH) down
 
-# Helper macro — run any rake target via /soup/docbld/Rakefile (workspace mode, login shell)
+arch.shell: ## 🐚 Enter interactive shell inside the runtime container
+	docker compose -f $(DOCKER_COMPOSE_ARCH) exec dhf-builder /bin/bash
+
+# -------------------------------------------------------------------------- }}}
+# {{{ 🧪 Runtime Tests (Amber, Ruby, Bundler)
+
+arch.test: ## 🧪 Verify Amber, Ruby, and Bundler are correctly installed in runtime
+	docker compose -f $(DOCKER_COMPOSE_ARCH) run --rm --entrypoint "" dhf-builder bash -lc "\
+	  set -e ; \
+	  echo 'Checking Ruby:' && ruby --version && \
+	  echo 'Checking gem:' && gem --version && \
+	  echo 'Checking Bundler:' && bundler --version && \
+	  echo 'Checking Python:' && python --version && \
+	  echo 'Checking Amber:' && bundle exec amber --version && \
+	  echo 'Checking Amber --help:' && bundle exec amber --help \
+	"
+
+# -------------------------------------------------------------------------- }}}
+# {{{ 🧬 DHF Document Build Targets
+
 define DOCKER_DOCBLD_RAKE_CMD
 docker compose -f $(DOCKER_COMPOSE_ARCH) exec \
   dhf-builder \
   bash -lc "cd /workspace && rake --rakefile /soup/docbld/Rakefile $(1)"
 endef
 
-dhf.clobber: ## 🧹 Remove generated files and intermediate artifacts
-	$(call DOCKER_DOCBLD_RAKE_CMD,clobber)
-
-dhf.copy_files: ## 📦 Copy generated files into the distribution folder
-	$(call DOCKER_DOCBLD_RAKE_CMD,copy_files)
-
-dhf.deploy: ## 🚀 Full docbld pipeline: clean → build → copy → clobber
+dhf.deploy: ## 🚀 Full DHF pipeline: clean → build → copy → clobber
 	$(call DOCKER_DOCBLD_RAKE_CMD,deploy)
 
-dhf.docx: ## 🧾 Build DOCX files from .texx using docbld
-	$(call DOCKER_DOCBLD_RAKE_CMD,docx)
-
-dhf.list_files: ## 📝 List all .texx files detected by docbld
+dhf.list_files: ## 📝 List all .texx files
 	$(call DOCKER_DOCBLD_RAKE_CMD,list_files)
 
-dhf.remove_distdir: ## 🗑️ Remove the distribution directory
-	$(call DOCKER_DOCBLD_RAKE_CMD,remove_distdir)
-
-dhf.texx: ## 🧾 Build PDFs from .texx files using docbld
+dhf.texx: ## 🧾 Build PDFs from .texx
 	$(call DOCKER_DOCBLD_RAKE_CMD,texx)
 
-# -------------------------------------------------------------------------- }}}
-# {{{ 🧼 Cleanup Targets
+dhf.docx: ## 🧾 Build DOCX
+	$(call DOCKER_DOCBLD_RAKE_CMD,docx)
 
-clean: ## 🧼 Cleanup local containers, images, volumes, orphans Arch
+dhf.clobber: ## 🧹 Remove build artifacts
+	$(call DOCKER_DOCBLD_RAKE_CMD,clobber)
+
+dhf.copy_files: ## 📦 Copy distribution files
+	$(call DOCKER_DOCBLD_RAKE_CMD,copy_files)
+
+dhf.remove_distdir: ## 🗑 Remove dist directory
+	$(call DOCKER_DOCBLD_RAKE_CMD,remove_distdir)
+
+# -------------------------------------------------------------------------- }}}
+# {{{ 🧼 Cleanup
+
+clean: ## 🧼 Cleanup containers, images, volumes
 	docker compose -f $(DOCKER_COMPOSE_ARCH) down --rmi local --volumes --remove-orphans
 
-prune: ## 🪓 Prune all dangling images and stopped containers
+prune: ## 🪓 Full Docker prune
 	docker system prune -af
 
 # -------------------------------------------------------------------------- }}}
-# {{{ 🆘 Amber
-
-define DOCKER_AMBER_RAKE_CMD
-docker compose -f $(DOCKER_COMPOSE_ARCH) exec \
-  dhf-builder \
-  bash -lc "cd /workspace && rake --rakefile /soup/amber/Rakefile $(1)"
-endef
-
-amber.run: ## 📚  Run a Amber command
-	$(call DOCKER_AMBER_RAKE_CMD,amber)
-
-# -------------------------------------------------------------------------- }}}
-# {{{ 🆘 Help - TODO: May need tweaking for powershell.
+# {{{ 🆘 Help
 
 arch.help: ## 📚 Show this help message
 	@echo "📌 DHF Builder Makefile — Docker build & testing"
@@ -184,33 +140,24 @@ win.help: ## 📚 Show this help message
 # {{{ 📝 PHONY
 
 .PHONY: \
-	amber.run \
 	arch.all \
-	arch.build \
 	arch.build-base \
-	arch.down \
-	arch.help \
-	arch.list_files \
-	arch.load \
-	arch.push \
+	arch.build \
 	arch.rebuild \
-	arch.rebuild-runtime \
-	arch.ruby \
 	arch.run \
-	arch.save \
-	arch.shell \
-	arch.texlive \
-	arch.texx \
 	arch.up \
-	dhf.all \
+	arch.down \
+	arch.shell \
+	arch.test \
+	dhf.deploy \
+	dhf.list_files \
+	dhf.texx \
+	dhf.docx \
 	dhf.clobber \
 	dhf.copy_files \
-	dhf.deploy \
-	dhf.docx \
-	dhf.list_files \
 	dhf.remove_distdir \
-	dhf.texx \
-	clean prune \
-	win.help
+	clean \
+	prune \
+	arch.help
 
 # -------------------------------------------------------------------------- }}}

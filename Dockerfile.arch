@@ -1,7 +1,7 @@
 # {{{ 🐧 Dockerfile.arch — DHF Builder Runtime Image
 #
 # Uses dhf-base (TeXLive + Pandoc)
-# Rebuilds fast: only Amber + repos change.
+# Rebuilds fast: only Amber + repos + Ruby toolchain
 
 FROM dhf-base:latest AS runtime
 ENV LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
@@ -18,7 +18,7 @@ COPY ./tlc-article  /soup/tlc-article
 RUN chown -R root:root /soup && chmod -R a+r /soup
 
 # -------------------------------------------------------------------------- }}}
-# {{{ Ruby Toolchain
+# {{{ Ruby Toolchain + Build Dependencies
 
 RUN pacman -Sy --noconfirm \
       gcc \
@@ -33,18 +33,36 @@ RUN pacman -Sy --noconfirm \
       which && \
     pacman -Scc --noconfirm && rm -rf /var/cache/pacman/pkg/*
 
+# Ruby gem location for user-installed gems
 ENV GEM_HOME=/root/.local/share/gem
-ENV PATH="/root/.local/share/gem/ruby/3.4.0/bin:$PATH"
+ENV PATH="/root/.local/share/gem/ruby/3.4.0/bin:${PATH}"
 
 RUN gem update --system && gem install bundler rake
 
 # -------------------------------------------------------------------------- }}}
-# {{{ Build Amber
+# {{{ Ruby Load Path and Bundler Environment (Critical for Amber)
+
+# Ensure Ruby can see bundler-installed gems
+ENV GEM_PATH="/soup/amber/vendor/bundle:${GEM_HOME}:/usr/lib/ruby/gems/3.4.0"
+
+# Ensure Amber always finds *its own* Gemfile
+ENV BUNDLE_GEMFILE=/soup/amber/Gemfile
+
+# Add vendor/bundle bin stubs to PATH
+ENV PATH="/soup/amber/vendor/bundle/ruby/3.4.0/bin:${PATH}"
+
+# Patch Amber CLI so it activates Bundler at runtime
+RUN sed -i '2irequire "bundler/setup"' /soup/amber/bin/amber
+
+# -------------------------------------------------------------------------- }}}
+# {{{ Build Amber (Install All Required Gem Groups)
 
 RUN cd /soup/amber && \
     bundle config set path 'vendor/bundle' && \
+    bundle config set with 'development test' && \
     bundle install
 
+# Amber executable
 ENV PATH="/soup/amber/bin:${PATH}"
 
 # -------------------------------------------------------------------------- }}}
@@ -59,13 +77,18 @@ EOF
 
 RUN chmod +x /etc/profile.d/dhf-env.sh
 
+# Disable Arch perlbin.sh to prevent append_path warnings
+RUN mv /etc/profile.d/perlbin.sh /etc/profile.d/perlbin.sh.disabled || true
+
 # -------------------------------------------------------------------------- }}}
 # {{{ Entrypoint
 
 RUN cat <<'EOF' >/usr/local/bin/dhf-entrypoint.sh
 #!/bin/bash
 [ -f /etc/profile ] && source /etc/profile
-for f in /etc/profile.d/*.sh; do [ -r "$f" ] && source "$f"; done
+for f in /etc/profile.d/*.sh; do
+  [ -r "$f" ] && source "$f"
+done
 exec /bin/bash --login
 EOF
 
