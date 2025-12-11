@@ -111,6 +111,15 @@ dhf.remove_distdir: ## 🗑 Remove dist directory
 	$(call DOCKER_DOCBLD_RAKE_CMD,remove_distdir)
 
 # -------------------------------------------------------------------------- }}}
+# {{{ 🧼 Amber Commands
+
+amber.run: ## ⚙️ Run Amber against host files through the container
+	docker compose -f $(DOCKER_COMPOSE_ARCH) run --rm dhf-builder bash -lc \"amber $$AMBER_ARGS\"
+
+amber.debug: ## ⚙️ Debug: print exact docker command that will execute
+	@echo docker compose -f $(DOCKER_COMPOSE_ARCH) run --rm dhf-builder bash -lc \"amber $$AMBER_ARGS\"
+
+# -------------------------------------------------------------------------- }}}
 # {{{ 🧼 Cleanup
 
 clean: ## 🧼 Cleanup containers, images, volumes
@@ -140,6 +149,8 @@ win.help: ## 📚 Show this help message
 # {{{ 📝 PHONY
 
 .PHONY: \
+	amber.debug \
+	amber.run \
 	arch.all \
 	arch.build-base \
 	arch.build \
