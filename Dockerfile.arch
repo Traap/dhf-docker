@@ -20,7 +20,7 @@ RUN chown -R root:root /soup && chmod -R a+r /soup
 # -------------------------------------------------------------------------- }}}
 # {{{ Ruby Toolchain + Build Dependencies
 
-RUN pacman -Sy --noconfirm \
+RUN pacman -Sy --noconfirm --needed \
       gcc \
       make \
       patch \
