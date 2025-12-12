@@ -9,16 +9,33 @@
 # -------------------------------------------------------------------------- }}}
 # {{{ 🔧 Base names and configuration
 
+# Detect Git Bash path translation
+CONTAINER_WORKSPACE := /workspace
+
+ifeq ($(shell uname -o 2>/dev/null),Msys)
+  WORKSPACE = //workspace
+else
+  WORKSPACE = /workspace
+endif
+
 # DHF paths baked into runtime image
 AMBER       := /soup/amber
 AUTODOC     := /soup/autodoc
+AUTODOCPATH := /soup/autodoc
 DOCBLD      := /soup/docbld
 EXPORTDIR   := /exports
 NEWDOC      := /soup/newdoc
 TLCDIR      := /soup/tlc-article
 
-AMBER_DOC   ?= DHF/Samples/90000
-AMBER_ARGS  ?=
+AMBER_DOC   ?= dhf-docker/DHF/Samples/90000
+AMBER_ARGS  ?= --log-command \
+							 --log-environment \
+							 --log-requirement \
+							 --obliterate \
+							 --nodryrun \
+							 --plan master
+
+DHF_ROOT    := ${WORKSPACE}/dhf-docker/DHF/
 
 # Docker BuildKit is always on
 export DOCKER_BUILDKIT=1
@@ -27,12 +44,6 @@ export DOCKER_BUILDKIT=1
 DOCKER_COMPOSE := docker-compose.arch.yml
 SERVICE := dhf-builder
 
-# Detect Git Bash path translation
-ifeq ($(shell uname -o 2>/dev/null),Msys)
-  WORKSPACE = //workspace
-else
-  WORKSPACE = /workspace
-endif
 
 # -------------------------------------------------------------------------- }}}
 # {{{ 🛡 Guard: require running container
@@ -53,40 +64,40 @@ arch.all: arch.build arch.up ## Build and start arch container.
 # {{{ 🧱 Build targets
 
 arch.build-base: ## 🧱 Build slow base image (dhf-base)
-	docker build -f Dockerfile.base -t dhf-base:latest .. > base.log 2>&1
+	@docker build -f Dockerfile.base -t dhf-base:latest .. > base.log 2>&1
 
 arch.build: ## 🚀 Build runtime layer (Amber + repos)
-	docker compose --progress=plain -f $(DOCKER_COMPOSE) build > arch.log 2>&1
+	@docker compose --progress=plain -f $(DOCKER_COMPOSE) build > arch.log 2>&1
 
 arch.rebuild: ## ♻ Rebuild runtime layer without using cache
-	docker compose --progress=plain -f $(DOCKER_COMPOSE) build --no-cache > arch.log 2>&1
+	@docker compose --progress=plain -f $(DOCKER_COMPOSE) build --no-cache > arch.log 2>&1
 
 # -------------------------------------------------------------------------- }}}
 # {{{ ⚡ Container lifecycle
 
 arch.up: ## ▶ Start long-lived DHF builder container
-	docker compose -f $(DOCKER_COMPOSE) up -d $(SERVICE)
+	@docker compose -f $(DOCKER_COMPOSE) up -d $(SERVICE)
 
 arch.down: ## ⏹ Stop DHF builder container
-	docker compose -f $(DOCKER_COMPOSE) down
+	@docker compose -f $(DOCKER_COMPOSE) down
 
 arch.restart: ## 🔄 Restart DHF builder container
-	docker compose -f $(DOCKER_COMPOSE) down
-	docker compose -f $(DOCKER_COMPOSE) up -d $(SERVICE)
+	@docker compose -f $(DOCKER_COMPOSE) down
+	@docker compose -f $(DOCKER_COMPOSE) up -d $(SERVICE)
 
 arch.ps: ## 📋 Show container status
-	docker compose -f $(DOCKER_COMPOSE) ps
+	@docker compose -f $(DOCKER_COMPOSE) ps
 
 arch.shell: ## 🐚 Shell into running container
 	$(call REQUIRE_CONTAINER_RUNNING)
-	docker compose -f $(DOCKER_COMPOSE) exec $(SERVICE) /bin/bash
+	@docker compose -f $(DOCKER_COMPOSE) exec $(SERVICE) /bin/bash
 
 # -------------------------------------------------------------------------- }}}
 # {{{ 🧪 Container tests.
 
 arch.test: ## 🧪 Verify Amber, Ruby, Bundler, and Python in running container
 	$(call REQUIRE_CONTAINER_RUNNING)
-	docker compose -f $(DOCKER_COMPOSE) exec \
+	@docker compose -f $(DOCKER_COMPOSE) exec \
 	  $(SERVICE) \
 	  bash -lc "\
 	    set -e ; \
@@ -105,29 +116,29 @@ define DOCKER_DOCBLD_RAKE
 $(call REQUIRE_CONTAINER_RUNNING)
 docker compose -f $(DOCKER_COMPOSE) exec \
   $(SERVICE) \
-  bash -lc "cd $(WORKSPACE) && rake --rakefile $(DOCBLD)/Rakefile $(1)"
+  bash -lc "cd $(DHF_ROOT) && rake --rakefile $(DOCBLD)/Rakefile $(1)"
 endef
 
 dhf.clobber: ## 🧹 Remove build artifacts
-	$(call DOCKER_DOCBLD_RAKE,clobber)
+	@$(call DOCKER_DOCBLD_RAKE,clobber)
 
 dhf.copy_files: ## 📦 Copy distribution files
-	$(call DOCKER_DOCBLD_RAKE,copy_files)
+	@$(call DOCKER_DOCBLD_RAKE,copy_files)
 
 dhf.docx: ## 🧾 Build DOCX
-	$(call DOCKER_DOCBLD_RAKE,docx)
+	@$(call DOCKER_DOCBLD_RAKE,docx)
 
 dhf.deploy: ## 🚀 Full DHF pipeline: clean → build → copy → clobber
-	$(call DOCKER_DOCBLD_RAKE,deploy)
+	@$(call DOCKER_DOCBLD_RAKE,deploy)
 
 dhf.list_files: ## 📝 List all .texx files
-	$(call DOCKER_DOCBLD_RAKE,list_files)
+	@$(call DOCKER_DOCBLD_RAKE,list_files)
 
 dhf.remove_distdir: ## 🗑 Remove dist directory
-	$(call DOCKER_DOCBLD_RAKE,remove_distdir)
+	@$(call DOCKER_DOCBLD_RAKE,remove_distdir)
 
 dhf.texx: ## 🧾 Build PDFs from .texx
-	$(call DOCKER_DOCBLD_RAKE,texx)
+	@$(call DOCKER_DOCBLD_RAKE,texx)
 
 # -------------------------------------------------------------------------- }}}
 # {{{ 🧼 Amber Commands
@@ -135,14 +146,13 @@ dhf.texx: ## 🧾 Build PDFs from .texx
 amber.run: ## 🧪 Run Amber against a single document factory
 	$(call REQUIRE_CONTAINER_RUNNING)
 	docker compose -f $(DOCKER_COMPOSE) exec \
-	  -w $(WORKSPACE)/$(AMBER_DOC) \
 	  $(SERVICE) \
-	  bash -lc "amber $(AMBER_ARGS)"
+	  bash -lc "cd /workspace/$(AMBER_DOC) && amber $(AMBER_ARGS)"
 
 amber.debug: ## 🔍 Echo Amber exec command
 	$(call REQUIRE_CONTAINER_RUNNING)
 	@echo docker compose -f $(DOCKER_COMPOSE) exec \
-	  -w $(WORKSPACE)/$(AMBER_DOC) \
+	  -w $(CONTAINER_WORKSPACE)/$(AMBER_DOC) \
 	  $(SERVICE) \
 	  bash -lc \"amber $(AMBER_ARGS)\"
 
@@ -150,10 +160,10 @@ amber.debug: ## 🔍 Echo Amber exec command
 # {{{ 🧼 Cleanup
 
 clean: ## 🧼 Stop container and remove volumes/images
-	docker compose -f $(DOCKER_COMPOSE) down --volumes --remove-orphans
+	@docker compose -f $(DOCKER_COMPOSE) down --volumes --remove-orphans
 
 prune: ## 🪓 Full Docker prune
-	docker system prune -af
+	@docker system prune -af
 
 # -------------------------------------------------------------------------- }}}
 # {{{ 🆘 Help
