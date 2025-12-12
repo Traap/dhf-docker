@@ -17,20 +17,28 @@ COPY ./tlc-article  /soup/tlc-article
 
 RUN chown -R root:root /soup && chmod -R a+r /soup
 
+ENV AMBER=/soup/amber
+ENV AUTODOC=/soup/autodoc
+ENV AUTODOCPATH=/soup/autodoc
+ENV DOCBLD=/soup/docbld
+ENV NEWDOC=/soup/newdoc
+ENV TLCDIR=/soup/tlc-article
+
 # -------------------------------------------------------------------------- }}}
 # {{{ Ruby Toolchain + Build Dependencies
 
 RUN pacman -Sy --noconfirm --needed \
+      base-devel \
+      curl \
       gcc \
+      git \
       make \
       patch \
-      base-devel \
+      python \
       ruby \
       ruby-irb \
       ruby-rake \
-      python \
-      git \
-      curl \
+      vim \
       which && \
     pacman -Scc --noconfirm && rm -rf /var/cache/pacman/pkg/*
 
