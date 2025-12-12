@@ -27,6 +27,7 @@ RUN pacman -Sy --noconfirm \
       base-devel \
       ruby \
       ruby-irb \
+      ruby-rake \
       python \
       git \
       curl \
@@ -37,21 +38,23 @@ RUN pacman -Sy --noconfirm \
 ENV GEM_HOME=/root/.local/share/gem
 ENV PATH="/root/.local/share/gem/ruby/3.4.0/bin:${PATH}"
 
-RUN gem update --system && gem install bundler rake
+# Install bundler only (rake is provided by pacman)
+RUN gem update --system && gem install bundler
 
 # -------------------------------------------------------------------------- }}}
-# {{{ Ruby Load Path and Bundler Environment (Critical for Amber)
+# {{{ Ruby Load Path and Bundler Environment (Corrected)
 
-# Ensure Ruby can see bundler-installed gems
-ENV GEM_PATH="/soup/amber/vendor/bundle:${GEM_HOME}:/usr/lib/ruby/gems/3.4.0"
+# 1. System RubyGems FIRST — so DHF Rake does NOT use Amber’s vendor rake.
+ENV GEM_PATH="${GEM_HOME}:/usr/lib/ruby/gems/3.4.0:/soup/amber/vendor/bundle"
 
-# Ensure Amber always finds *its own* Gemfile
+# 2. Ensure Amber always finds its own Gemfile.
 ENV BUNDLE_GEMFILE=/soup/amber/Gemfile
 
-# Add vendor/bundle bin stubs to PATH
-ENV PATH="/soup/amber/vendor/bundle/ruby/3.4.0/bin:${PATH}"
+# 3. PREPEND system Ruby bin, then APPEND Amber vendor/bundle bin.
+#    This prevents Amber's rake from shadowing system rake.
+ENV PATH="/root/.local/share/gem/ruby/3.4.0/bin:/usr/bin:/usr/local/bin:${PATH}:/soup/amber/vendor/bundle/ruby/3.4.0/bin"
 
-# Patch Amber CLI so it activates Bundler at runtime
+# 4. Patch Amber CLI to activate Bundler correctly.
 RUN sed -i '2irequire "bundler/setup"' /soup/amber/bin/amber
 
 # -------------------------------------------------------------------------- }}}
@@ -89,7 +92,13 @@ RUN cat <<'EOF' >/usr/local/bin/dhf-entrypoint.sh
 for f in /etc/profile.d/*.sh; do
   [ -r "$f" ] && source "$f"
 done
-exec /bin/bash --login
+
+# Pass commands through instead of always starting interactive shell
+if [ $# -eq 0 ]; then
+  exec /bin/bash --login
+else
+  exec /bin/bash --login -c "$*"
+fi
 EOF
 
 RUN chmod +x /usr/local/bin/dhf-entrypoint.sh
