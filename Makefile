@@ -93,9 +93,9 @@ arch.shell: ## 🐚 Shell into running container
 	@docker compose -f $(DOCKER_COMPOSE) exec $(SERVICE) /bin/bash
 
 # -------------------------------------------------------------------------- }}}
-# {{{ 🧪 Container tests.
+# {{{ 🧪 Confirm container has needed executables.
 
-arch.test: ## 🧪 Verify Amber, Ruby, Bundler, and Python in running container
+arch.test.exe: ## 🧪 Check executables
 	$(call REQUIRE_CONTAINER_RUNNING)
 	@docker compose -f $(DOCKER_COMPOSE) exec \
 	  $(SERVICE) \
@@ -106,8 +106,59 @@ arch.test: ## 🧪 Verify Amber, Ruby, Bundler, and Python in running container
 	    echo 'Checking Bundler:' && bundler --version && \
 	    echo 'Checking Python:' && python --version && \
 	    echo 'Checking Amber:' && bundle exec amber --version && \
-	    echo 'Checking Amber --help:' && bundle exec amber --help \
+	    echo 'Checking Amber --help:' && bundle exec amber --help && \
+			echo 'Done' \
 	  "
+
+# -------------------------------------------------------------------------- }}}
+# {{{ 🧪 List makefile variablees
+
+arch.test.vars: ## 🧪 List makefile variables.
+	$(call REQUIRE_CONTAINER_RUNNING)
+	@docker compose -f $(DOCKER_COMPOSE) exec \
+	  $(SERVICE) \
+	  bash -lc "\
+	    set -e ; \
+			echo 'Showing variables:' && \
+			echo '  AMBER: ${AMBER}' && \
+			echo '  AMBER_ARGS: ${AMBER_ARGS}' \
+			echo '  AMBER_COC: ${AMBER_DOC}' && \
+			echo '  AUTODOC: ${AUTODOC}' && \
+			echo '  AUTODOCPATH: ${AUTODOCPATH}' && \
+			echo '  CONTAINER_WORKSPACE: ${CONTAINER_WORKSPACE}' && \
+			echo '  DOCBLD: ${DOCBLD}' && \
+			echo '  DOCKER_COMPOSE: ${DOCKER_COMPOSE}' && \
+			echo '  DHF_ROOT: ${DHF_ROOT}' && \
+			echo '  EXPORTDIR: ${EXPORTDIR}' && \
+			echo '  NEWDOC: ${NEWDOC}' && \
+			echo '  TLCDIR: ${TLCDIR}' && \
+			echo '  SERVICE: ${SERVICE}' && \
+			echo '  WORKSPACE: ${WORKSPACE}' && \
+			echo 'Done' \
+	  "
+# -------------------------------------------------------------------------- }}}
+# {{{ 🧪 Check LaTeX values inside container
+#
+#         Assert a kpsewhich variable equals an expected value
+#
+#         Usage:
+#           $(call ASSERT_KPSE_VAR,VAR_NAME,EXPECTED_VALUE)
+
+define ASSERT_KPSE_VAR
+  val="$$(kpsewhich --var-value $(1))" ; \
+  printf "Checking %s: '%s' = '%s'\n" "$(1)" "$$val" "$(2)" ; \
+  test "$$val" = "$(2)" ; \
+  echo "OK: $(1) verified"
+endef
+
+arch.test.tex: ## 🧪 Check LaTeX values inside container.
+	$(call REQUIRE_CONTAINER_RUNNING)
+	@docker compose -f $(DOCKER_COMPOSE) exec \
+	  $(SERVICE) \
+	  bash -lc '\
+		  set -e ; \
+		  $(call ASSERT_KPSE_VAR,AUTODOCPATH,/soup/autodoc) \
+	  '
 
 # -------------------------------------------------------------------------- }}}
 # {{{ 🧬 DHF Document Build Targets
@@ -131,7 +182,7 @@ dhf.docx: ## 🧾 Build DOCX
 dhf.deploy: ## 🚀 Full DHF pipeline: clean → build → copy → clobber
 	@$(call DOCKER_DOCBLD_RAKE,deploy)
 
-dhf.list_files: ## 📝 List all .texx files
+dhf.list_files: ## 📝 List all .texx files outside container
 	@$(call DOCKER_DOCBLD_RAKE,list_files)
 
 dhf.remove_distdir: ## 🗑 Remove dist directory

@@ -27,6 +27,13 @@ ENV TLCDIR=/soup/tlc-article
 # -------------------------------------------------------------------------- }}}
 # {{{ Ruby Toolchain + Build Dependencies
 
+# Ensure pacman owns libyaml (avoid unmanaged file conflicts)
+RUN rm -f \
+    /usr/lib/libyaml.so \
+    /usr/lib/libyaml-0.so.2 \
+    /usr/lib/libyaml-0.so.2.0.9 \
+    /usr/lib/pkgconfig/yaml-0.1.pc || true
+
 RUN pacman -Sy --noconfirm --needed \
       base-devel \
       curl \
